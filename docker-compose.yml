@@ -1,0 +1,35 @@
+services:
+  fastapi_backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sports_api_backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    networks:
+      - backend-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+
+  aider:
+    image: paulgauthier/aider-full:latest
+    container_name: sports_aider
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    tty: true
+    stdin_open: true
+    working_dir: /app
+    networks:
+      - backend-network
+
+
+networks:
+  backend-network:
+    driver: bridge
+

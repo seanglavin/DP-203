@@ -1,0 +1,9 @@
+aider-install
+aider-chat[ollama]
+aider-chat[deepseek]
+fastapi
+uvicorn[standard]
+python-dotenv
+pandas
+requests
+pydantic
