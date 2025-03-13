@@ -20,6 +20,11 @@ services:
     container_name: sports_aider
     env_file:
       - .env
+    environment:
+      - OLLAMA_API_BASE=https://oll.chadzone.top
+      - OLLAMA_MODEL=ollama_chat/llama3.2
+      - DEEPSEEK_API_BASE=https://oll.chadzone.top
+      - DEEPSEEK_MODEL=ollama_chat/deepseek-r1:14b
     volumes:
       - .:/app
     tty: true

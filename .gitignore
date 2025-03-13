@@ -3,3 +3,4 @@
 .cache*
 .python-version
 __pycache__*
+logfile.log

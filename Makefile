@@ -29,10 +29,9 @@ aider-deepseek: up
 
 # View logs
 logs:
-	docker-compose logs -f
+	docker-compose logs fastapi_backend
 
 # Clean up Docker resources
 clean:
 	docker-compose down -v
 	docker system prune -f
-

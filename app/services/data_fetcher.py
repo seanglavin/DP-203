@@ -1,65 +1,15 @@
+import io
 import os
-import logging
 import pandas as pd
 from typing import List, Dict
 import requests
 from datetime import datetime
 from azure.storage.blob import BlobServiceClient
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from logger_config import logger
+from app.config_settings import settings
+from app.services.data_storage import DataStorage
 
-def extract_team_data(team_names: List[str]) -> pd.DataFrame:
-    """
-    Extracts team data from TheSportsDB API for a list of team names.
-
-    Args:
-        team_names: List of team names to look up
-
-    Returns:
-        DataFrame containing extracted team information
-    """
-    api_base = "https://www.thesportsdb.com/api/v1/json/3"
-
-    all_teams = []
-
-    for team in team_names:
-        logger.info(f"Processing team: {team}")
-
-        try:
-            response = requests.get(
-                f"{api_base}/searchteams.php?t={team}",
-                timeout=10
-            )
-
-            if not response.ok:
-                logger.error(f"API request failed for {team}. Status code: {response.status_code}")
-                continue
-
-            data = response.json()
-
-            if "teams" in data and len(data["teams"]) > 0:
-                team_info = data["teams"][0]  # Take first matching team
-                all_teams.append({
-                    "idTeam": team_info.get("idTeam"),
-                    "strTeam": team_info.get("strTeam"),
-                    "strTeamShort": team_info.get("strTeamShort"),
-                    "intFormedYear": team_info.get("intFormedYear"),
-                    "strSport": team_info.get("strSport"),
-                    "strLeague": team_info.get("strLeague"),
-                    "idLeague": team_info.get("idLeague"),
-                    "strStadium": team_info.get("strStadium"),
-                    "strLocation": team_info.get("strLocation"),
-                    "intStadiumCapacity": team_info.get("intStadiumCapacity"),
-                    "strLogo": team_info.get("strLogo"),
-                    "timestamp": datetime.now()
-                })
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Request error for {team}: {str(e)}")
-
-    return pd.DataFrame(all_teams)
 
 
 def extract_all_nba_teams() -> pd.DataFrame:
@@ -69,7 +19,7 @@ def extract_all_nba_teams() -> pd.DataFrame:
     Returns:
         DataFrame containing all NBA team information
     """
-    api_base = "https://www.thesportsdb.com/api/v1/json/3"
+    api_base = settings.THESPORTSDB_FREE_API_BASE
     logger.info("Extracting all NBA teams...")
     
     try:
@@ -117,7 +67,7 @@ def extract_all_nhl_teams() -> pd.DataFrame:
     Returns:
         DataFrame containing all NHL team information
     """
-    api_base = "https://www.thesportsdb.com/api/v1/json/3"
+    api_base = settings.THESPORTSDB_FREE_API_BASE
     logger.info("Extracting all NHL teams...")
     
     try:
@@ -152,7 +102,38 @@ def extract_all_nhl_teams() -> pd.DataFrame:
                 })
                 
         return pd.DataFrame(all_teams)
-        
+
     except requests.exceptions.RequestException as e:
         logger.error(f"Request error for NHL teams: {str(e)}")
         return pd.DataFrame()
+    
+
+def save_data_to_azure(data: pd.DataFrame, file_name: str) -> bool:
+    """
+    Save DataFrame to Azure Data Lake Storage.
+
+    Args:
+        data: DataFrame to save
+        file_name: Name of the file in storage
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Initialize blob service client
+        blob_service_client = BlobServiceClient.from_connection_string(settings.AZURE_STORAGE_CONNECTION_STRING)
+        container_name = settings.AZURE_STORAGE_CONTAINER_NAME
+
+        # Convert DataFrame to CSV buffer
+        csv_buffer = io.StringIO()
+        data.to_csv(csv_buffer, index=False)
+
+        # Upload to Azure Data Lake
+        blob_client = blob_service_client.get_blob_client(container=container_name, blob=file_name)
+        blob_client.upload_text(csv_buffer.getvalue())
+
+        return True
+
+    except Exception as e:
+        logger.error(f"Error saving data to Azure: {str(e)}")
+        return False

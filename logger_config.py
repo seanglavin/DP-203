@@ -1,6 +1,6 @@
 import logging
 
-logger = logging.getLogger("DP204_Logger")
+logger = logging.getLogger("DP-203")
 logging.basicConfig(level=logging.INFO)
 
 file_handler = logging.FileHandler('logfile.log')
