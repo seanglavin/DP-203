@@ -1,10 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
-from app.services.data_storage import check_adls_connection
+from app.services.data_storage import AzureDataStorageClient
 from app.config_settings import settings
-from app.endpoints import sports
+from app.endpoints import sports, storage
 from logger_config import logger
+
+
+load_dotenv()
 
 
 app = FastAPI(
@@ -24,7 +28,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(sports.router, prefix="/api/sports", tags=["sports"])
-
+app.include_router(storage.router, prefix="/api/storage", tags=["storage"])
 
 @app.get("/")
 async def root():
@@ -56,11 +60,14 @@ async def test_adls_connection():
                 "details": "AZURE_STORAGE_CONNECTION_STRING must be provided in settings"
             }
         
-        # Call the test function
-        connection_result = check_adls_connection(
+        # Initialize the storage client
+        storage_client = AzureDataStorageClient(
             connection_string=connection_string,
             container_name=container_name
         )
+
+        # Call the test function
+        connection_result = await storage_client.check_connection()
         
         # Add a message to the result
         if connection_result["success"]:

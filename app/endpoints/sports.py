@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from app.models.thesportsdb import TeamData, TeamDataResponse
 from app.services.data_fetcher import extract_all_nba_teams, extract_all_nhl_teams
 from logger_config import logger

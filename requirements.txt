@@ -1,4 +1,5 @@
 aider-install
+aider-chat
 aider-chat[ollama]
 aider-chat[deepseek]
 fastapi
@@ -8,3 +9,4 @@ pandas
 requests
 pydantic
 azure-storage-blob
+python-multipart

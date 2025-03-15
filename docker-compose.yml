@@ -22,8 +22,10 @@ services:
       - .env
     environment:
       - OLLAMA_API_BASE=https://oll.chadzone.top
+      - OLLAMA_API_KEY=sk-8794f21da51f4658bb91577ba18e5151
       - OLLAMA_MODEL=ollama_chat/llama3.2
       - DEEPSEEK_API_BASE=https://oll.chadzone.top
+      - DEEPSEEK_API_KEY=sk-8794f21da51f4658bb91577ba18e5151
       - DEEPSEEK_MODEL=ollama_chat/deepseek-r1:14b
     volumes:
       - .:/app
@@ -37,4 +39,3 @@ services:
 networks:
   backend-network:
     driver: bridge
-
