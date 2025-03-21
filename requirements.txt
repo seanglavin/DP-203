@@ -1,7 +1,3 @@
-aider-install
-aider-chat
-aider-chat[ollama]
-aider-chat[deepseek]
 fastapi
 uvicorn[standard]
 python-dotenv

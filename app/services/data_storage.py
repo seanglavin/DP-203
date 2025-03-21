@@ -8,69 +8,6 @@ from logger_config import logger
 
 
 
-# azure_connection_string = settings.AZURE_STORAGE_CONNECTION_STRING
-# azure_container_name = settings.AZURE_STORAGE_CONTAINER_NAME
-
-# def check_adls_connection(connection_string, container_name=None):
-#     """
-#     Tests connection to Azure Data Lake Storage and returns detailed results
-#     """
-#     connection_info = {}
-
-#     # Try connecting with the connection string
-#     try:
-#         blob_service_client = BlobServiceClient.from_connection_string(connection_string)
-#         connection_info["connection_valid"] = True
-#     except Exception as e:
-#         connection_info["connection_valid"] = False
-#         connection_info["connection_error"] = str(e)
-#         return {
-#             "success": False,
-#             "timestamp": datetime.now().isoformat(),
-#             "connection_details": connection_info
-#         }
-        
-#     # Test container access if requested
-#     if container_name:
-#         try:
-#             # Get the container client
-#             container_client = blob_service_client.get_container_client(container_name)
-            
-#             # Test existence
-#             exists = container_client.exists()
-#             connection_info["container_exists"] = exists
-            
-#             if exists:
-#                 # Get properties
-#                 properties = container_client.get_container_properties()
-#                 connection_info["container_properties"] = {
-#                     "last_modified": properties.last_modified.isoformat() if hasattr(properties, "last_modified") else None,
-#                     "lease_status": properties.lease.status if hasattr(properties, "lease") else None
-#                 }
-                
-#                 # List a few blobs
-#                 blobs = list(container_client.list_blobs(maxresults=3))
-#                 connection_info["sample_blobs"] = [{"name": blob.name, "size": blob.size} for blob in blobs]
-#                 connection_info["total_blobs_sampled"] = len(blobs)
-#         except Exception as e:
-#             connection_info["container_access_error"] = str(e)
-#             connection_info["container_accessible"] = False
-#             return {
-#                 "success": False,
-#                 "timestamp": datetime.now().isoformat(),
-#                 "connection_details": connection_info
-#             }
-#         else:
-#             connection_info["container_accessible"] = True
-    
-#     return {
-#         "success": True,
-#         "timestamp": datetime.now().isoformat(),
-#         "connection_details": connection_info
-#     }
-
-
-
 class AzureDataStorageClient:
     """
     Azure Data Lake Storage client for managing data operations
@@ -150,7 +87,7 @@ class AzureDataStorageClient:
             List of file metadata dictionaries
         """
 
-    def upload_dataframe(self, df: pd.DataFrame, blob_name: str) -> bool:
+    async def upload_dataframe(self, df: pd.DataFrame, blob_name: str) -> bool:
         """
         Upload a DataFrame as a CSV to Azure Blob Storage
         
@@ -163,7 +100,7 @@ class AzureDataStorageClient:
         """
         try:
             # Ensure container exists
-            self.ensure_container_exists()
+            await self.ensure_container_exists()
             
             # Convert DataFrame to CSV
             csv_buffer = io.StringIO()
@@ -186,7 +123,16 @@ class AzureDataStorageClient:
         Returns:
             Dictionary with connection test results
         """
-        connection_info = {}
+        connection_info = {
+            "connection_valid": False,
+            "container_exists": None,
+            "container_accessible": None,
+            "container_properties": None,
+            "sample_blobs": None,
+            "total_blobs_sampled": None,
+            "connection_error": None,
+            "container_access_error": None
+        }
 
         # Try connecting with the connection string
         try:
@@ -220,6 +166,8 @@ class AzureDataStorageClient:
                 blobs = list(self.container_client.list_blobs(maxresults=3))
                 connection_info["sample_blobs"] = [{"name": blob.name, "size": blob.size} for blob in blobs]
                 connection_info["total_blobs_sampled"] = len(blobs)
+                connection_info["container_accessible"] = True
+
         except Exception as e:
             connection_info["container_access_error"] = str(e)
             connection_info["container_accessible"] = False
@@ -228,9 +176,7 @@ class AzureDataStorageClient:
                 "timestamp": datetime.now().isoformat(),
                 "connection_details": connection_info
             }
-        else:
-            connection_info["container_accessible"] = True
-        
+          
         return {
             "success": True,
             "timestamp": datetime.now().isoformat(),

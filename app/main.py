@@ -1,11 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from datetime import datetime
 
+from app.models.azure_storage import ConnectionTestResponse, StorageConnectionDetails
 from app.services.data_storage import AzureDataStorageClient
 from app.config_settings import settings
 from app.endpoints import sports, storage
-from logger_config import logger
+from logger_config import logger, logger_api_response
 
 
 load_dotenv()
@@ -39,52 +41,119 @@ async def health_check():
     return {"status": "healthy"}
 
 
-@app.get("/test/adls-connection")
+@app.get("/test/adls-connection", response_model=ConnectionTestResponse)
 async def test_adls_connection():
     """
     Tests connection to Azure Data Lake Storage using connection string
     Returns connection status and details
     """
     try:
-        logger.info("Testing connection to Azure Data Lake Storage")
+        logger.info("Testing connection to Azure Data Lake Storage...")
         
         # Get configuration from environment variables or settings
         connection_string = settings.AZURE_STORAGE_CONNECTION_STRING
         container_name = settings.AZURE_STORAGE_CONTAINER_NAME
-        
-        # Validation
-        if not connection_string:
-            return {
-                "success": False,
-                "message": "Missing required Azure Storage connection string",
-                "details": "AZURE_STORAGE_CONNECTION_STRING must be provided in settings"
-            }
-        
+
+        logger.info(f"connection_string: {connection_string}")
+        logger.info(f"container_name: {container_name}")
+
         # Initialize the storage client
         storage_client = AzureDataStorageClient(
-            connection_string=connection_string,
-            container_name=container_name
+            connection_string = connection_string,
+            container_name = container_name
         )
 
         # Call the test function
         connection_result = await storage_client.check_connection()
         
-        # Add a message to the result
-        if connection_result["success"]:
-            connection_result["message"] = "Successfully connected to Azure Data Lake Storage"
-            if container_name and connection_result["connection_details"].get("container_exists"):
-                connection_result["message"] += f" and container '{container_name}'"
-        else:
-            connection_result["message"] = "Failed to connect to Azure Data Lake Storage"
-            if "connection_error" in connection_result["connection_details"]:
-                connection_result["message"] += f": {connection_result['connection_details']['connection_error']}"
-        
-        return connection_result
+        # Prepare response model
+        response = ConnectionTestResponse(
+            success=connection_result["success"],
+            message="Azure Data Lake Storage connection test successful" if connection_result["success"] else "Azure Data Lake Storage connection test failed",
+            timestamp=connection_result["timestamp"],
+            connection_details=connection_result["connection_details"]
+        )
+
+        # Log response after getting results
+        logger_api_response(response)
+        return response
     
     except Exception as e:
-        logger.error(f"Error testing ADLS connection: {str(e)}")
-        return {
-            "success": False,
-            "message": "Azure Data Lake Storage connection test failed",
-            "error": str(e)
-        }
+        error_response = ConnectionTestResponse(
+            success=False,
+            message="Azure Data Lake Storage connection test failed",
+            timestamp=datetime.now().isoformat(),
+            connection_details=StorageConnectionDetails(
+                connection_valid=False,
+                connection_error=str(e)
+            )
+        )
+        logger_api_response(error_response, "error")
+        return error_response
+
+
+# --- Continue this Convenience endpoint
+# @app.post("/extract-and-save/{league}", response_model=LeagueSaveResponse, tags=["orchestration"])
+# async def extract_and_save_league_orchestrated(
+#     league: str, 
+#     background_tasks: BackgroundTasks,
+#     api_url: str = Depends(get_api_url)
+# ):
+#     """
+#     Orchestration endpoint that calls the individual sports and storage endpoints
+#     to extract and save data
+    
+#     Parameters:
+#     - league: League to fetch and save data for (e.g., "nba", "nhl")
+#     """
+#     try:
+#         logger.info(f"Orchestrating extract and save for {league.upper()} via API calls")
+        
+#         # Validate league parameter
+#         if league.lower() not in ["nba", "nhl"]:
+#             raise HTTPException(status_code=400, detail=f"Unsupported league: {league}")
+        
+#         # Step 1: Call the league data endpoint to get the data
+#         async with httpx.AsyncClient() as client:
+#             teams_response = await client.get(f"{api_url}/api/sports/{league.lower()}/teams")
+            
+#             if teams_response.status_code != 200:
+#                 error_detail = teams_response.json().get("detail", f"Error fetching {league} data")
+#                 raise HTTPException(status_code=teams_response.status_code, detail=error_detail)
+            
+#             teams_data = teams_response.json()
+            
+#             if teams_data.get("count", 0) == 0:
+#                 return LeagueSaveResponse(
+#                     success=False,
+#                     message=f"No {league.upper()} data found to save",
+#                     league=league.lower(),
+#                     filename="",
+#                     rows=0
+#                 )
+            
+#             # Step 2: Call the save endpoint with the fetched data
+#             save_response = await client.post(
+#                 f"{api_url}/api/storage/save/{league.lower()}"
+#             )
+            
+#             if save_response.status_code != 200:
+#                 error_detail = save_response.json().get("detail", f"Error saving {league} data")
+#                 raise HTTPException(status_code=save_response.status_code, detail=error_detail)
+            
+#             save_data = save_response.json()
+            
+#             # Return the save response
+#             return LeagueSaveResponse(
+#                 success=save_data.get("success", False),
+#                 message=save_data.get("message", ""),
+#                 league=league.lower(),
+#                 rows=save_data.get("rows", 0),
+#                 filename=save_data.get("filename", "")
+#             )
+    
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error in orchestrated extract and save for {league}: {str(e)}")
+#         raise HTTPException(status_code=500, detail=f"Error in orchestrated operation: {str(e)}")
