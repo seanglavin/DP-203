@@ -24,18 +24,17 @@ class TeamDataResponse(BaseModel):
 
 
 class PlayerData(BaseModel):
-    idPlayer: str
-    idTeam: str
-    strNationality: str
-    strPlayer: str
-    strTeam: str
-    strSport: str
+    idPlayer: Optional[int]
+    idTeam: Optional[int]
+    strNationality: Optional[str]
+    strPlayer: Optional[str]
+    strTeam: Optional[str]
+    strSport: Optional[str]
     dateBorn: datetime
     strNumber: Optional[str]
     strWage: Optional[str]
     strBirthLocation: Optional[str]
-    strStatus: str
-    strPosition: str
+    strStatus: Optional[str]
     strHeight: Optional[str]
     strWeight: Optional[str]
     strThumb: Optional[str]

@@ -22,14 +22,11 @@ def extract_all_nba_teams() -> pd.DataFrame:
     logger.info("Extracting all NBA teams...")
     
     try:
-
-        # Try fetching data from TheSportsDB API endpoint
-        logger.info("Fetching NBA team data from API")
         try:
             # TheSportsDB API endpoint to search teams by league
             response = requests.get(
                 f"{api_base}/search_all_teams.php?l=NBA",
-                timeout=15
+                timeout=5
             )
             
             if not response.ok:
@@ -83,14 +80,15 @@ def extract_all_nhl_teams() -> pd.DataFrame:
             # TheSportsDB API endpoint to search teams by league
             response = requests.get(
                 f"{api_base}/search_all_teams.php?l=NHL",
-                timeout=15
+                timeout=5
             )
             
             if not response.ok:
                 logger.error(f"API request failed for NHL teams. Status code: {response.status_code}")
                 return pd.DataFrame()
-                
+               
             data = response.json()
+
             all_teams = []
             
             if "teams" in data and data["teams"]:
@@ -138,7 +136,7 @@ def extract_team_players(team_id: int) -> pd.DataFrame:
     try:
         response = requests.get(
             f"{api_base}/lookup_all_players.php?id={team_id}",
-            timeout=15
+            timeout=5
         )
 
         if not response.ok:
@@ -147,10 +145,10 @@ def extract_team_players(team_id: int) -> pd.DataFrame:
 
         data = response.json()
 
-        if "players" in data and data["players"]:
+        if "player" in data and data["player"]:
             players = []
 
-            for player_info in data["players"]:
+            for player_info in data["player"]:
                 players.append({
                     "idPlayer": player_info.get("idPlayer"),
                     "idTeam": player_info.get("idTeam"),
@@ -197,7 +195,7 @@ def extract_team_details(team_id: int) -> pd.DataFrame:
     try:
         response = requests.get(
             f"{api_base}/lookupteam.php?id={team_id}",
-            timeout=15
+            timeout=5
         )
 
         if not response.ok:
@@ -253,7 +251,7 @@ def extract_player_details(player_id: int) -> pd.DataFrame:
     try:
         response = requests.get(
             f"{api_base}/lookupplayer.php?id={player_id}",
-            timeout=15
+            timeout=5
         )
 
         if not response.ok:
@@ -262,10 +260,10 @@ def extract_player_details(player_id: int) -> pd.DataFrame:
 
         data = response.json()
 
-        if "players" in data and data["players"]:
+        if "player" in data and data["player"]:
             players = []
 
-            for player_info in data["players"]:
+            for player_info in data["player"]:
                 players.append({
                     "idPlayer": player_info.get("idPlayer"),
                     "idTeam": player_info.get("idTeam"),

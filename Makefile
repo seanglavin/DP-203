@@ -9,7 +9,6 @@ export
 # Start only the API service
 up:
 	docker-compose up -d
-	@echo "Services started. API available at http://localhost:8000"
 
 # Stop all containers
 down:
@@ -20,7 +19,6 @@ rebuild:
 	docker-compose down
 	docker-compose build --no-cache
 	docker-compose up -d
-	@echo "Services rebuilt and restarted"
 
 
 aider-deepseek:
@@ -39,7 +37,6 @@ prune:
 	docker-compose down -v --remove-orphans
 	docker network prune -f
 	docker system prune -f
-	@echo "Removed orphaned containers and networks"
 
 
 # Shell into containers

@@ -1,3 +1,5 @@
+version: '3'
+
 services:
   fastapi_backend:
     build:
@@ -9,32 +11,10 @@ services:
     env_file:
       - .env
     volumes:
-      - .:/app
+      - ./:/app
     networks:
       - sports-api-backend-network
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info --proxy-headers
-
-
-  # aider:
-  #   image: paulgauthier/aider:latest
-  #   container_name: sports_aider
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - OLLAMA_API_BASE=https://oll.chadzone.top
-  #     - OLLAMA_API_KEY=sk-8794f21da51f4658bb91577ba18e5151
-  #     - OLLAMA_MODEL=ollama_chat/llama3.2
-  #     - DEEPSEEK_API_BASE=https://oll.chadzone.top
-  #     - DEEPSEEK_API_KEY=sk-8794f21da51f4658bb91577ba18e5151
-  #     - DEEPSEEK_MODEL=ollama_chat/deepseek-r1:14b
-  #   volumes:
-  #     - .:/app
-  #   tty: true
-  #   stdin_open: true
-  #   working_dir: /app
-  #   networks:
-  #     - backend-network
-
+    # command: uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 networks:
   sports-api-backend-network:
