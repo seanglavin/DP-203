@@ -1,12 +1,19 @@
+import json
 from fastapi import HTTPException, APIRouter
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from datetime import datetime
-from logger_config import logger
+
 from app.services.get_storage_client import get_storage_client
-from app.services.data_fetcher_nba import get_all_teams, get_all_players, convert_data_to_format
+from app.services.data_fetcher_nba import (
+    get_all_teams, 
+    get_all_players, 
+    convert_data_to_format,
+    get_team_info_by_id,
+    get_all_teams_info
+)
 from app.config_settings import settings
-import json
+from logger_config import logger
 
 
 
@@ -19,7 +26,7 @@ async def get_storage():
     """Dependency to get storage client"""
     return get_storage_client()
 
-
+# Root
 @router.get("/", tags=["source"])
 async def source_root():
     logger.info("message: NBA data fetching API root")
@@ -38,12 +45,13 @@ async def fetch_teams():
         # Limit log output to first 2 teams for readability
         sample_data = data_json_response[:2]
         logger.info(
-            f"Successfully fetched {len(data_json_response)} teams. \nSample:\n{json.dumps(sample_data, indent=2)}"
+            f"Successfully fetched {len(data_json_response)} teams. \nSample of first 2:\n{json.dumps(sample_data, indent=2)}"
         )
         return data
     except Exception as e:
         logger.error(f"Error processing team request: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/nba/players", response_model=List[Dict])
 async def fetch_players():
@@ -56,9 +64,41 @@ async def fetch_players():
         # Limit log output to first 2 teams for readability
         sample_data = data_json_response[:2]
         logger.info(
-            f"Successfully fetched {len(data_json_response)} players. \nSample:\n{json.dumps(sample_data, indent=2)}"
+            f"Successfully fetched {len(data_json_response)} players. \nSample of first 2:\n{json.dumps(sample_data, indent=2)}\n..."
         )
         return data
     except Exception as e:
         logger.error(f"Error processing player request: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/nba/team_info/{team_id}", response_model=Dict)
+async def fetch_team_info(team_id: int):
+    """Get detailed information about a specific NBA team."""
+    try:
+        data = get_team_info_by_id(team_id=team_id)
+
+        # Convert data to JSON string (limit length for logging)
+        data_sample = json.dumps(data, indent=2)[:500]  # Log first 500 chars for readability
+
+        logger.info(f"Successfully fetched info for team ID: {team_id}, \nSample response: {data_sample}\n...")
+        return data
+    except Exception as e:
+        logger.error(f"Error processing team info request for ID {team_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/nba/team_info", response_model=List[Dict])
+async def fetch_all_teams_info():
+    """Get detailed information about all NBA teams."""
+    try:
+        data = get_all_teams_info()
+
+        # Convert data to JSON string (limit length for logging)
+        data_sample = json.dumps(data, indent=2)[:500]  # Log first 500 chars for readability
+
+        logger.info(f"Successfully fetched info for {len(data)} teams, \nSample response: {data_sample}\n...")
+        return data
+    except Exception as e:
+        logger.error(f"Error processing all team info request: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
