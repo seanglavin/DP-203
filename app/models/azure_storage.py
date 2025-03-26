@@ -123,3 +123,28 @@ class ConnectionTestResponse(StorageResponseBase):
             except ValueError:
                 raise ValueError("Timestamp string must be in ISO 8601 format")
         return v
+
+
+
+class RawAPIResponse(BaseModel):
+    """Generic model for storing raw API responses."""
+    timestamp: Optional[str] = None
+    endpoint: Optional[str] = None
+    message: Optional[Any] = None 
+    response_data: Optional[Any] = None # Store as JSON string
+
+    @validator('timestamp', pre=True, always=True)
+    def parse_timestamp(cls, v):
+        if isinstance(v, datetime):
+            return v.isoformat()
+        return v
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "timestamp": "2023-10-25T14:30:00.000Z",
+                "endpoint": "/nba-player-list",
+                "message": "",
+                "response_data": '{"data": [...]}'  # Entire API response as JSON string
+            }
+        }

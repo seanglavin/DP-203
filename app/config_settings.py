@@ -3,6 +3,10 @@ import os
 class Settings:
     # thesportsdb free api
     THESPORTSDB_FREE_API_BASE: str = os.getenv("THESPORTSDB_FREE_API_BASE")
+    RAPID_API_HOCKEY_URL_BASE: str = os.getenv("RAPID_API_HOCKEY_URL_BASE")
+    RAPID_API_NBA_URL_BASE: str = os.getenv("RAPID_API_NBA_URL_BASE")
+    RAPID_API_NBA_FREE_URL_BASE: str = os.getenv("RAPID_API_NBA_FREE_URL_BASE")
+    RAPID_API_KEY: str = os.getenv("RAPID_API_KEY")
 
     # Azure Storage
     AZURE_STORAGE_CONNECTION_STRING: str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")

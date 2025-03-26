@@ -6,7 +6,7 @@ from datetime import datetime
 from app.models.azure_storage import ConnectionTestResponse, StorageConnectionDetails
 from app.services.data_storage import AzureDataStorageClient
 from app.config_settings import settings
-from app.endpoints import sports, storage
+from app.endpoints import sports, storage, source_nba_data
 from logger_config import logger, logger_api_response
 
 
@@ -29,8 +29,9 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(sports.router, prefix="/api/sports", tags=["sports"])
-app.include_router(storage.router, prefix="/api/storage", tags=["storage"])
+# app.include_router(sports.router, prefix="/api/sports", tags=["sports"])
+# app.include_router(storage.router, prefix="/api/storage", tags=["storage"])
+app.include_router(source_nba_data.router, prefix="/api/source", tags=["source"])
 
 @app.get("/")
 async def root():

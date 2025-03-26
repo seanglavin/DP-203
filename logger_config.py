@@ -10,7 +10,9 @@ from pydantic import BaseModel
 logger = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO)
 
-formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(name)s.%(module)s.%(funcName)s | %(message)s')
+formatter = logging.Formatter(
+    'LOGGER: [%(levelname)s] [%(asctime)s] | %(name)s.%(module)s.%(funcName)s\n%(message)s'
+    )
 
 # Create file handler for logging to a file
 file_handler = logging.FileHandler('logfile.log')

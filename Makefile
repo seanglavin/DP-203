@@ -12,11 +12,12 @@ up:
 
 # Stop all containers
 down:
-	docker-compose down
+	docker-compose down -v --remove-orphans
 
 # Rebuild and restart
 rebuild:
-	docker-compose down
+	docker-compose down -v --remove-orphans
+	docker system prune -f
 	docker-compose build --no-cache
 	docker-compose up -d
 
@@ -27,7 +28,7 @@ aider-deepseek:
 
 # View logs
 logs:
-	docker-compose logs -f
+	docker logs -f sports_api_backend
 
 logs-api:
 	docker-compose logs -f fastapi_backend
@@ -35,8 +36,8 @@ logs-api:
 # Remove orphaned containers and networks
 prune:
 	docker-compose down -v --remove-orphans
-	docker network prune -f
 	docker system prune -f
+	docker network prune -f
 
 
 # Shell into containers
