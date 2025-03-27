@@ -113,7 +113,7 @@ def get_all_teams_info() -> List[Dict]:
             team_id = team.get('id')
             if team_id:
                 logger.info(f"Getting team info for team_id: {team_id}")
-                time.sleep(2) # Delay to avoid rate limit
+                time.sleep(1) # Delay to avoid rate limit
                 team_info = get_team_info_by_id(team_id=team_id)
                 team_infos.append(team_info)
 
@@ -145,7 +145,7 @@ def get_all_players_career_stats() -> List[Dict]:
             player_id = player.get('id')
             if player_id:
                 logger.info(f"Getting career stats for player_id: {player_id}")
-                time.sleep(2) # Delay to avoid rate limit
+                time.sleep(1) # Delay to avoid rate limit
                 player_stats = get_player_career_stats_by_id(player_id=player_id)
                 all_player_career_stats.append(player_stats)
 

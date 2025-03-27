@@ -1,98 +1,7 @@
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Union
 from pydantic import BaseModel, Field, validator
 from datetime import datetime
 
-# --- Base Models ---
-
-class StorageResponseBase(BaseModel):
-    """Base model for all storage responses."""
-    success: bool
-    message: str
-
-
-# --- File Models ---
-
-class BlobFileInfo(BaseModel):
-    """Information about a file in Azure Blob Storage."""
-    name: str
-    size_bytes: int
-    created_on: Optional[datetime] = None
-    last_modified: Optional[datetime] = None
-    content_type: Optional[str] = None
-
-    @validator('created_on', 'last_modified', pre=True, always=True)
-    def parse_datetime(cls, v):
-        if isinstance(v, str):
-            try:
-                return datetime.fromisoformat(v)
-            except ValueError:
-                raise ValueError("Datetime string must be in ISO 8601 format")
-        return v
-
-
-class FileListResponse(StorageResponseBase):
-    """Response model for listing files."""
-    files: List[BlobFileInfo]
-    count: int
-    container: str
-
-
-class FileDeleteResponse(StorageResponseBase):
-    """Response model for file deletion."""
-    filename: str
-
-
-# --- Upload/Download Models ---
-
-class FileUploadResponse(StorageResponseBase):
-    """Response model for file uploads."""
-    filename: str
-    size_bytes: int
-    rows: int
-
-
-class DataFrameUploadRequest(BaseModel):
-    """Request model for uploading a DataFrame."""
-    filename: str
-    overwrite: bool = False
-    add_timestamp: bool = True
-
-
-class DataFrameUploadResponse(StorageResponseBase):
-    """Response model for DataFrame uploads."""
-    filename: str
-    rows: int
-
-
-# --- Data Models ---
-
-class DataDownloadResponse(StorageResponseBase):
-    """Response model for data downloads in JSON format."""
-    filename: str
-    rows: int
-    data: List[Dict[str, Any]]
-
-
-# --- League Data Models ---
-
-class LeagueSaveRequest(BaseModel):
-    """Request model for saving league data."""
-    league: str = Field(..., description="League to save (e.g., 'nba', 'nhl')")
-    include_timestamp: bool = True
-    
-    @validator('league')
-    def validate_league(cls, v):
-        """Ensure that the league is either 'nba' or 'nhl'."""
-        if v.lower() not in ['nba', 'nhl']:
-            raise ValueError('League must be either "nba" or "nhl"')
-        return v.lower()
-
-
-class LeagueSaveResponse(StorageResponseBase):
-    """Response model for saving league data."""
-    league: str
-    filename: str
-    rows: int
 
 
 # --- Connection Models ---
@@ -109,8 +18,10 @@ class StorageConnectionDetails(BaseModel):
     container_access_error: Optional[str] = None
 
 
-class ConnectionTestResponse(StorageResponseBase):
+class ConnectionTestResponse(BaseModel):
     """Response model for connection tests."""
+    success: bool
+    message: str
     timestamp: datetime
     connection_details: StorageConnectionDetails
 
@@ -125,26 +36,25 @@ class ConnectionTestResponse(StorageResponseBase):
         return v
 
 
+# --- Azure models
 
-class RawAPIResponse(BaseModel):
-    """Generic model for storing raw API responses."""
-    timestamp: Optional[str] = None
-    endpoint: Optional[str] = None
-    message: Optional[Any] = None 
-    response_data: Optional[Any] = None # Store as JSON string
+class FileListResponse(BaseModel):
+    """Response model for listing files."""
+    name: str
+    size: int
+    last_modified: Optional[datetime] = None
 
-    @validator('timestamp', pre=True, always=True)
-    def parse_timestamp(cls, v):
-        if isinstance(v, datetime):
-            return v.isoformat()
-        return v
+class DataDownloadResponse(BaseModel):
+    """Response model for downloaded data."""
+    data: Union[List[Dict], Dict, str]
+    file_name: str
+    download_time: str
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "timestamp": "2023-10-25T14:30:00.000Z",
-                "endpoint": "/nba-player-list",
-                "message": "",
-                "response_data": '{"data": [...]}'  # Entire API response as JSON string
-            }
-        }
+class DataFrameUploadRequest(BaseModel):
+    """Request model for uploading transformed data."""
+    file_name: str
+    data: Union[List[Dict], Dict]
+
+class DataFrameUploadResponse(BaseModel):
+    """Response model for successful data upload."""
+    message: str

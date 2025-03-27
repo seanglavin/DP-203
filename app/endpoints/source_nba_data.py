@@ -2,7 +2,7 @@ import json
 from fastapi import HTTPException, APIRouter, Depends
 from typing import List, Dict
 
-from app.services.data_storage import AzureDataStorageClient, get_storage_client
+from app.services.azure_storage_client import AzureDataStorageClient, get_storage_client
 from app.services.data_fetcher_nba import (
     get_all_teams, 
     get_all_players, 
@@ -105,7 +105,7 @@ async def fetch_all_teams_info():
         raise HTTPException(status_code=500, detail=str(e))
     
 
-@router.get("/nba/team-info/upload-csv")
+@router.post("/nba/team-info/upload-csv")
 async def upload_teams_to_csv(storage_client: AzureDataStorageClient = Depends(get_storage)):
     """Upload all NBA teams data to Azure Storage as CSV."""
     try:
@@ -127,7 +127,7 @@ async def upload_teams_to_csv(storage_client: AzureDataStorageClient = Depends(g
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/nba/players/upload-csv")
+@router.post("/nba/players/upload-csv")
 async def upload_players_to_csv(storage_client: AzureDataStorageClient = Depends(get_storage)):
     """Upload all NBA players data to Azure Storage as CSV."""
     try:
@@ -149,7 +149,7 @@ async def upload_players_to_csv(storage_client: AzureDataStorageClient = Depends
         raise HTTPException(status_code=500, detail=str(e))
     
 
-@router.get("/nba/players/career-stats/upload-csv")
+@router.post("/nba/players/career-stats/upload-csv")
 async def upload_all_players_career_stats_to_csv(storage_client: AzureDataStorageClient = Depends(get_storage)):
     """Upload all NBA players career stats data to Azure Storage as CSV."""
     try:

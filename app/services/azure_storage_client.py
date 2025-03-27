@@ -5,7 +5,6 @@ import pandas as pd
 from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient
 from app.config_settings import settings
 from logger_config import logger
-from app.models.azure_storage import RawAPIResponse
 import json
 
 
@@ -131,29 +130,6 @@ class AzureDataStorageClient:
             return False
 
 
-    async def upload_raw_api_response(self, file_name: str, response: RawAPIResponse):
-        """
-        Uploads a raw API response to storage.
-
-        Args:
-            file_name: Name of the file to save in storage
-            response: RawAPIResponse model containing data to save
-
-        Returns:
-            Uploaded file information
-        """
-        blob_client = self.get_blob_client(file_name)
-        blob_data = json.dumps(response.dict(), ensure_ascii=False).encode('utf-8')
-
-        try:
-            upload_result = await blob_client.upload_blob(blob_data, overwrite=True)
-            return {
-                "file_name": file_name,
-                "content_length": len(blob_data),
-                "upload_time": datetime.now().isoformat()
-            }
-        except Exception as e:
-            raise e
 
 # ---
 
