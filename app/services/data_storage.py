@@ -9,7 +9,20 @@ from app.models.azure_storage import RawAPIResponse
 import json
 
 
+# --- Helpers
+def get_storage_client():
+    """
+    Factory function that returns storage client
 
+    """
+    # Return client
+    return AzureDataStorageClient(
+        connection_string=settings.AZURE_STORAGE_CONNECTION_STRING,
+        container_name=settings.AZURE_STORAGE_CONTAINER_NAME
+    )
+
+
+# --- Class
 class AzureDataStorageClient:
     """
     Azure Data Lake Storage client for managing data operations
@@ -118,7 +131,7 @@ class AzureDataStorageClient:
             return False
 
 
-    async def uplaod_raw_api_response(self, file_name: str, response: RawAPIResponse):
+    async def upload_raw_api_response(self, file_name: str, response: RawAPIResponse):
         """
         Uploads a raw API response to storage.
 
@@ -142,9 +155,59 @@ class AzureDataStorageClient:
         except Exception as e:
             raise e
 
+# ---
+
+    async def upload_data_as_csv(self, data: List[Dict], file_name: str) -> bool:
+        """
+        Upload NBA team info data in specified format to Azure Storage.
+
+        Args:
+            data: List of team info dictionaries
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+
+            df = pd.DataFrame(data)
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            blob_name = file_name
+
+            # Upload to storage
+            blob_client = self.get_blob_client(blob_name)
+            blob_client.upload_blob(csv_buffer.getvalue(), overwrite=True)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error uploading team info data: {str(e)}")
+            raise
 
 
+    async def upload_data_as_json(self, data: List[Dict], file_name: str) -> bool:
+        """
+        Upload NBA team info data in specified format to Azure Storage.
 
+        Args:
+            data: List of team info dictionaries
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            json_data = json.dumps(data)
+            blob_name = file_name
+
+            # Upload to storage
+            blob_client = self.get_blob_client(blob_name)
+            blob_client.upload_blob(json_data, overwrite=True)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error uploading team info data: {str(e)}")
+            raise
 
 
     async def check_connection(self) -> Dict[str, Any]:

@@ -11,7 +11,7 @@ logger = logging.getLogger("app")
 logging.basicConfig(level=logging.INFO)
 
 formatter = logging.Formatter(
-    'LOGGER: [%(levelname)s] [%(asctime)s] | %(name)s.%(module)s.%(funcName)s\n%(message)s'
+    'LOGGER: [%(levelname)s] [%(asctime)s] | %(name)s.%(module)s.%(funcName)s - %(message)s'
     )
 
 # Create file handler for logging to a file
