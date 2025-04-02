@@ -100,40 +100,66 @@ class AzureDataStorageClient:
         Returns:
             List of file metadata dictionaries
         """
-
-    async def upload_dataframe(self, df: pd.DataFrame, blob_name: str) -> bool:
-        """
-        Upload a DataFrame as a CSV to Azure Blob Storage
-        
-        Args:
-            df: DataFrame to upload
-            blob_name: Name of the blob to create
+        try:
+            # Ensure container exists
+            await self.ensure_container_exists()
             
+            # List blobs with optional prefix and max results
+            blobs = self.container_client.list_blobs(
+                name_starts_with=prefix, 
+                maxresults=max_results
+            )
+            
+            # Convert blob properties to list of dictionaries
+            file_list = [
+                {
+                    "name": blob.name,
+                    "size": blob.size,
+                    "last_modified": blob.last_modified
+                } 
+                for blob in blobs
+            ]
+            
+            return file_list
+    
+        except Exception as e:
+            logger.error(f"Error listing files in container: {str(e)}")
+            raise
+
+
+# ---
+
+    async def upload_data_as_parquet(self, data: pd.DataFrame, file_name: str) -> bool:
+        """
+        Upload data as a Parquet file to Azure Storage.
+
+        Args:
+            data: Pandas DataFrame to store
+            file_name: Path in Azure Blob Storage
+
         Returns:
             True if successful, False otherwise
         """
         try:
             # Ensure container exists
             await self.ensure_container_exists()
-            
-            # Convert DataFrame to CSV
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            
-            # Upload to blob storage
-            blob_client = self.get_blob_client(blob_name)
-            blob_client.upload_blob(csv_buffer.getvalue(), overwrite=True)
+
+            # Convert DataFrame to Parquet bytes
+            parquet_buffer = io.BytesIO()
+            data.to_parquet(parquet_buffer, index=False, engine="pyarrow", compression="snappy")
+            parquet_buffer.seek(0)
+
+            # Upload to storage
+            blob_client = self.get_blob_client(file_name)
+            blob_client.upload_blob(parquet_buffer.getvalue(), overwrite=True)
+
             return True
 
         except Exception as e:
-            logger.error(f"Error saving data to Azure: {str(e)}")
-            return False
+            logger.error(f"Error uploading Parquet data: {str(e)}")
+            raise
 
-
-
-# ---
-
-    async def upload_data_as_csv(self, data: List[Dict], file_name: str) -> bool:
+    async def upload_data_as_csv(self, data: pd.DataFrame, file_name: str) -> bool:
         """
         Upload NBA team info data in specified format to Azure Storage.
 
@@ -144,10 +170,11 @@ class AzureDataStorageClient:
             True if successful, False otherwise
         """
         try:
+            # Ensure container exists
+            await self.ensure_container_exists()
 
-            df = pd.DataFrame(data)
             csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
+            data.to_csv(csv_buffer, index=False)
             blob_name = file_name
 
             # Upload to storage
@@ -161,7 +188,7 @@ class AzureDataStorageClient:
             raise
 
 
-    async def upload_data_as_json(self, data: List[Dict], file_name: str) -> bool:
+    async def upload_data_as_json(self, data: pd.DataFrame, file_name: str) -> bool:
         """
         Upload NBA team info data in specified format to Azure Storage.
 
@@ -172,7 +199,11 @@ class AzureDataStorageClient:
             True if successful, False otherwise
         """
         try:
-            json_data = json.dumps(data)
+            # Ensure container exists
+            await self.ensure_container_exists()
+
+            data_dict = data.to_dict(index=False)
+            json_data = json.dumps(data_dict)
             blob_name = file_name
 
             # Upload to storage
@@ -184,6 +215,75 @@ class AzureDataStorageClient:
         except Exception as e:
             logger.error(f"Error uploading team info data: {str(e)}")
             raise
+
+
+    async def read_parquet_data(self, file_name: str) -> pd.DataFrame:
+        """
+        Read a Parquet file from Azure Storage.
+        
+        Args:
+            file_name: Path to the Parquet file in Azure Blob Storage
+            
+        Returns:
+            Pandas DataFrame containing the data, or None if the file doesn't exist
+        """
+        try:
+            # Ensure container exists
+            await self.ensure_container_exists()
+
+            # Get blob client
+            blob_client = self.get_blob_client(file_name)
+            
+            # Check if blob exists
+            if not blob_client.exists():
+                logger.warning(f"Parquet file {file_name} does not exist")
+                return None
+            
+            # Download blob content
+            blob_data = blob_client.download_blob().readall()
+
+            # logging block
+            if not blob_data:
+                logger.info(f"Read blob parquet data failed for: {file_name}")
+            logger.info(f"Read blob parquet data success for: {file_name}")
+            
+            # Convert to DataFrame
+            buffer = io.BytesIO(blob_data)
+            df = pd.read_parquet(buffer, engine="pyarrow")
+
+            return df
+        except Exception as e:
+            logger.error(f"Error reading Parquet data from {file_name}: {str(e)}")
+            raise
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     async def check_connection(self) -> Dict[str, Any]:

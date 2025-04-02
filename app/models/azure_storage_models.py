@@ -58,3 +58,46 @@ class DataFrameUploadRequest(BaseModel):
 class DataFrameUploadResponse(BaseModel):
     """Response model for successful data upload."""
     message: str
+
+
+# --- Reads single parquet file
+class ParquetReadResponse(BaseModel):
+    """Response model for reading parquet files."""
+    message: str
+    file_name: str
+    execution_time: str
+    sample_data: Optional[List[Dict]] = None
+    data: List[Dict]
+    
+    class Config:
+        arbitrary_types_allowed = True
+
+# ---
+
+class QueryResultsResponse(BaseModel):
+    """Response model for query results."""
+    data: List[Dict]
+    query_params: Dict
+    result_count: int
+    execution_time: str
+
+class DataQueryRequest(BaseModel):
+    """Request model for querying data."""
+    file_name: str
+    filter_params: Optional[Dict[str, Any]] = None
+
+
+# ---
+
+class ParquetDataDownloadResponse(BaseModel):
+    """Response model for downloading parquet files."""
+    file_name: str
+    data: List[Dict]
+    download_time: str
+
+class QueryResultsResponse(BaseModel):
+    """Response model for SQL query results."""
+    results: List[Dict]
+    columns: List[str]
+    row_count: int
+    execution_time: str

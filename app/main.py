@@ -3,11 +3,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from datetime import datetime
 
-from app.models.azure_storage import ConnectionTestResponse, StorageConnectionDetails
+from app.models.azure_storage_models import ConnectionTestResponse, StorageConnectionDetails
 from app.services.azure_storage_client import AzureDataStorageClient
 from app.config_settings import settings
-from app.endpoints import source_nba_data, storage_operations
-from logger_config import logger, logger_api_response
+from app.endpoints import azure_storage_endpoints, source_data_endpoints
+from logger_config import logger
 
 
 load_dotenv()
@@ -30,8 +30,8 @@ app.add_middleware(
 
 # Include routers
 # app.include_router(sports.router, prefix="/api/sports", tags=["sports"])
-app.include_router(source_nba_data.router, prefix="/api/source", tags=["source"])
-app.include_router(storage_operations.router, prefix="/api/storage", tags=["storage"])
+app.include_router(source_data_endpoints.router, prefix="/api/source", tags=["source"])
+app.include_router(azure_storage_endpoints.router, prefix="/api/storage", tags=["storage"])
 
 @app.get("/")
 async def root():
@@ -74,9 +74,6 @@ async def test_adls_connection():
             timestamp=connection_result["timestamp"],
             connection_details=connection_result["connection_details"]
         )
-
-        # Log response after getting results
-        logger_api_response(response)
         return response
     
     except Exception as e:
@@ -89,72 +86,4 @@ async def test_adls_connection():
                 connection_error=str(e)
             )
         )
-        logger_api_response(error_response, "error")
         return error_response
-
-
-# --- Continue this Convenience endpoint
-# @app.post("/extract-and-save/{league}", response_model=LeagueSaveResponse, tags=["orchestration"])
-# async def extract_and_save_league_orchestrated(
-#     league: str, 
-#     background_tasks: BackgroundTasks,
-#     api_url: str = Depends(get_api_url)
-# ):
-#     """
-#     Orchestration endpoint that calls the individual sports and storage endpoints
-#     to extract and save data
-    
-#     Parameters:
-#     - league: League to fetch and save data for (e.g., "nba", "nhl")
-#     """
-#     try:
-#         logger.info(f"Orchestrating extract and save for {league.upper()} via API calls")
-        
-#         # Validate league parameter
-#         if league.lower() not in ["nba", "nhl"]:
-#             raise HTTPException(status_code=400, detail=f"Unsupported league: {league}")
-        
-#         # Step 1: Call the league data endpoint to get the data
-#         async with httpx.AsyncClient() as client:
-#             teams_response = await client.get(f"{api_url}/api/sports/{league.lower()}/teams")
-            
-#             if teams_response.status_code != 200:
-#                 error_detail = teams_response.json().get("detail", f"Error fetching {league} data")
-#                 raise HTTPException(status_code=teams_response.status_code, detail=error_detail)
-            
-#             teams_data = teams_response.json()
-            
-#             if teams_data.get("count", 0) == 0:
-#                 return LeagueSaveResponse(
-#                     success=False,
-#                     message=f"No {league.upper()} data found to save",
-#                     league=league.lower(),
-#                     filename="",
-#                     rows=0
-#                 )
-            
-#             # Step 2: Call the save endpoint with the fetched data
-#             save_response = await client.post(
-#                 f"{api_url}/api/storage/save/{league.lower()}"
-#             )
-            
-#             if save_response.status_code != 200:
-#                 error_detail = save_response.json().get("detail", f"Error saving {league} data")
-#                 raise HTTPException(status_code=save_response.status_code, detail=error_detail)
-            
-#             save_data = save_response.json()
-            
-#             # Return the save response
-#             return LeagueSaveResponse(
-#                 success=save_data.get("success", False),
-#                 message=save_data.get("message", ""),
-#                 league=league.lower(),
-#                 rows=save_data.get("rows", 0),
-#                 filename=save_data.get("filename", "")
-#             )
-    
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         logger.error(f"Error in orchestrated extract and save for {league}: {str(e)}")
-#         raise HTTPException(status_code=500, detail=f"Error in orchestrated operation: {str(e)}")
