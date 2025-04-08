@@ -14,7 +14,6 @@ services:
       - ./:/app
     networks:
       - sports-api-backend-network
-    # network_mode: host
 
 networks:
   sports-api-backend-network:

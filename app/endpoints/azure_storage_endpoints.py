@@ -82,7 +82,50 @@ async def read_players_list(
     except Exception as e:
         logger.error(f"Error retrieving {file_name} data: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve data: {str(e)}")
-    
+
+
+# Get player career stats
+@router.get("/players/career-stats")
+async def read_merged_player_career_stats(
+    player_id: Optional[int] = None,
+    storage_client: AzureDataStorageClient = Depends(get_storage)
+):
+    """
+    Retrieve NBA player career stats data from Azure Storage Parquet files.
+    Allows filtering by player ID.
+    """
+    try:
+        logger.info("Received GET request | read_merged_player_career_stats")
+        
+        # Get list of all parquet files in the directory
+        files = await storage_client.list_files()
+        parquet_files = [f["name"] for f in files if f["name"].startswith("nba_players_careerstats/season=") and f["name"].endswith(".parquet")]
+
+        if not parquet_files:
+            raise HTTPException(status_code=404, detail="No valid data found in player career stats")
+
+        # Read and merge all parquet files
+        dataframes = [await storage_client.read_parquet_data(file) for file in parquet_files]
+        merged_df = pd.concat([df for df in dataframes if df is not None and not df.empty], ignore_index=True)
+        
+        
+        # Apply filters if provided
+        if player_id is not None:
+            merged_df = merged_df[merged_df["PLAYER_ID"] == player_id]
+        
+        if merged_df.empty:
+            raise HTTPException(status_code=404, detail="No data found for given filters")
+        
+        # Convert to dict for JSON response
+        result = merged_df.to_dict(orient="records")
+        return {"data": result, "count": len(result)}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving player career stats data: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve data: {str(e)}")
+
 
 # Get list of all teams
 @router.get("/teams")

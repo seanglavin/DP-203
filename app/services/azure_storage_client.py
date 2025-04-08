@@ -20,6 +20,17 @@ def get_storage_client():
         container_name=settings.AZURE_STORAGE_CONTAINER_NAME
     )
 
+def get_petfinder_storage_client():
+    """
+    Factory function that returns storage client
+
+    """
+    # Return client
+    return AzureDataStorageClient(
+        connection_string=settings.AZURE_STORAGE_CONNECTION_STRING,
+        container_name="petfinder"
+    )
+
 
 # --- Class
 class AzureDataStorageClient:
@@ -242,10 +253,10 @@ class AzureDataStorageClient:
             # Download blob content
             blob_data = blob_client.download_blob().readall()
 
-            # logging block
-            if not blob_data:
-                logger.info(f"Read blob parquet data failed for: {file_name}")
-            logger.info(f"Read blob parquet data success for: {file_name}")
+            # # logging block
+            # if not blob_data:
+            #     logger.info(f"Read blob parquet data failed for: {file_name}")
+            # logger.info(f"Read blob parquet data success for: {file_name}")
             
             # Convert to DataFrame
             buffer = io.BytesIO(blob_data)

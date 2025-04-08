@@ -6,7 +6,7 @@ from datetime import datetime
 from app.models.azure_storage_models import ConnectionTestResponse, StorageConnectionDetails
 from app.services.azure_storage_client import AzureDataStorageClient
 from app.config_settings import settings
-from app.endpoints import azure_storage_endpoints, source_data_endpoints
+from app.endpoints import azure_storage_endpoints, petfinder_api_endpoints, source_data_endpoints
 from logger_config import logger
 
 
@@ -29,9 +29,9 @@ app.add_middleware(
 )
 
 # Include routers
-# app.include_router(sports.router, prefix="/api/sports", tags=["sports"])
 app.include_router(source_data_endpoints.router, prefix="/api/source", tags=["source"])
-app.include_router(azure_storage_endpoints.router, prefix="/api/storage", tags=["storage"])
+app.include_router(azure_storage_endpoints.router, prefix="/storage", tags=["storage"])
+app.include_router(petfinder_api_endpoints.router, prefix="/api/petfinder", tags=["petfinder"])
 
 @app.get("/")
 async def root():
@@ -40,7 +40,6 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-
 
 @app.get("/test/adls-connection", response_model=ConnectionTestResponse)
 async def test_adls_connection():

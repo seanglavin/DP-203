@@ -8,3 +8,4 @@ azure-storage-blob
 python-multipart
 nba_api
 pyarrow
+httpx

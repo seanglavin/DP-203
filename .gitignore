@@ -5,3 +5,5 @@ aider
 .python-version
 __pycache__*
 logfile.log
+udemystuff/
+frontend/node_modules/
