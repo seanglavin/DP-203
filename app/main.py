@@ -28,6 +28,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# # Mount Vue static files (for production)
+# app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+
+
 # Include routers
 app.include_router(source_data_endpoints.router, prefix="/api/source", tags=["source"])
 app.include_router(azure_storage_endpoints.router, prefix="/storage", tags=["storage"])

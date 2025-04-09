@@ -7,3 +7,4 @@ __pycache__*
 logfile.log
 udemystuff/
 frontend/node_modules/
+node_modules/
