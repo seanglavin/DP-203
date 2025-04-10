@@ -15,19 +15,19 @@ services:
     networks:
       - sports-api-backend-network
 
-
   vue_frontend:
-    image: node:16-alpine
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: vue_frontend
     ports:
-      - "80:80"
+      - "8080:8080"
     environment:
       - NODE_ENV=development
     volumes:
-      - ./:/app/frontend
+      - ./frontend:/app/frontend
     networks:
       - sports-api-backend-network
-    command: npm run dev
 
 networks:
   sports-api-backend-network:
