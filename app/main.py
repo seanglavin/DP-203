@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.encoders import jsonable_encoder
 from dotenv import load_dotenv
 from datetime import datetime
+
 
 from app.models.azure_storage_models import ConnectionTestResponse, StorageConnectionDetails
 from app.services.azure_storage_client import AzureDataStorageClient
@@ -28,8 +30,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# # Mount Vue static files (for production)
-# app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
 
 
 # Include routers

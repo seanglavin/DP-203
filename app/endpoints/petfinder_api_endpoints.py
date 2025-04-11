@@ -2,10 +2,12 @@ import httpx
 import pandas as pd
 import numpy as np
 import random
+import json
 from typing import List, Dict
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta  # Handles month calculations
 from fastapi import HTTPException, APIRouter, Depends, Query
+from fastapi.responses import JSONResponse
 from app.services.azure_storage_client import AzureDataStorageClient, get_petfinder_storage_client
 from app.models.azure_storage_models import FileListResponse
 
@@ -300,7 +302,44 @@ async def read_petfinder_pets_from_storage(
 
 
 @router.get("/pets/gameboards")
-async def create_game_boards(
+async def get_game_boards(
+    storage_client: AzureDataStorageClient = Depends(get_storage)
+):
+    """Read the generated gameboards file and return the gameboards as JSON."""
+    try:
+        file_name = "gameboards.parquet"
+
+        # Check if the file exists
+        files = await storage_client.list_files()
+        if file_name not in [f["name"] for f in files]:
+            return {"message": "Gameboards file not found. Please generate it first."}
+
+        # Read the Parquet file
+        gameboard_df = await storage_client.read_parquet_data(file_name)
+
+        if gameboard_df is None or gameboard_df.empty:
+            return {"message": "Gameboards file is empty."}
+
+        # Convert timestamps back to string if needed
+        if "published_at" in gameboard_df.columns:
+            gameboard_df["published_at"] = gameboard_df["published_at"].astype(str)
+
+        # Reconstruct gameboards from the DataFrame
+        game_boards = []
+        for gameboard_id, board_df in gameboard_df.groupby("gameboard_id"):
+            game_boards.append({
+                f"pet{j+1}": pet for j, pet in enumerate(board_df.to_dict(orient="records"))
+            })
+
+        return {"gameboards": game_boards}
+
+    except Exception as e:
+        logger.exception("Failed to read gameboards file")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+    
+
+@router.post("/pets/gameboards/generate")
+async def generate_game_boards_file(
     type: str = Query(None),
     age: str = Query(None),
     gender: str = Query(None),
@@ -310,7 +349,7 @@ async def create_game_boards(
     primary_color: str = Query(None),
     storage_client: AzureDataStorageClient = Depends(get_storage)
 ):
-    """Create a randomized GameBoard with unique pets (up to 12)."""
+    """Generate a single Parquet file containing gameboards with unique pets (up to 12)."""
     try:
         # List available parquet files
         files = await storage_client.list_files()
@@ -346,6 +385,10 @@ async def create_game_boards(
             if value:
                 full_df = full_df[full_df[column] == value]
 
+        # Ensure published_at is a string
+        if "published_at" in full_df.columns:
+            full_df["published_at"] = pd.to_datetime(full_df["published_at"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S")
+
         # Ensure there are enough pets
         total_pets = len(full_df)
         if total_pets < 5:
@@ -358,15 +401,26 @@ async def create_game_boards(
         num_boards = total_pets // 5  # Each board needs 5 pets
 
         # Split into game boards
-        game_boards = [
-            shuffled_pets.iloc[i * 5: (i + 1) * 5].to_dict(orient="records") 
-            for i in range(num_boards)
-        ]
+        game_boards = []
+        for i in range(num_boards):
+            board_pets = shuffled_pets.iloc[i * 5: (i + 1) * 5].copy()
+            game_boards.append(board_pets)
 
-        return {"gameboards": game_boards}
+        # Flatten gameboards into a single DataFrame for saving
+        gameboard_df = pd.concat(game_boards, keys=range(len(game_boards)), names=["gameboard_id"]).reset_index(level=0)
+
+        # Save gameboards to a single Parquet file
+        file_name = "gameboards.parquet"
+        success = await storage_client.upload_data_as_parquet(data=gameboard_df, file_name=file_name)
+
+        if not success:
+            logger.error("Failed to upload gameboards file.")
+            return {"message": "Failed to generate gameboards file."}
+
+        return {"message": "Gameboards file generated successfully", "file_name": file_name}
 
     except Exception as e:
-        logger.exception("Failed to create game boards")
+        logger.exception("Failed to generate gameboards file")
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
     
 
