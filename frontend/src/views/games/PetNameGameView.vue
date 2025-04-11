@@ -1,7 +1,7 @@
 <!-- PetNameGameView.vue -->
 <template>
     <div>
-      <h2 class="text-3xl font-bold mb-6">Pet Name Guessing Game</h2>
+      <!-- <h2 class="text-3xl font-bold mb-6">Pet Name Guessing Game</h2> -->
       <PetNameGame />
       
       <div class="mt-6">

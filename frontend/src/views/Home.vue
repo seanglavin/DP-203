@@ -1,24 +1,23 @@
 <template>
-  <div class="home">
-    <!-- <h2 class="text-3xl font-bold mb-6">Choose a Game</h2> -->
-    
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+  <div class="home flex flex-col items-center">
+    <!-- Games Wrapper -->
+    <div class="flex flex-wrap justify-center gap-6 w-full max-w-4xl">
       <!-- Game Card for Pet Name Guessing -->
-      <div class="game-card bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition">
-        <h3 class="text-xl font-bold mb-2">Petfinder Name Game</h3>
-        <p class="mb-4">Can you guess the correct names of these adorable pets?</p>
+      <div class="game-card bg-[var(--secondary-light)] p-6 rounded-xl shadow-md hover:shadow-lg transition max-w-md w-full">
+        <h3 class="text-xl font-bold mb-2 text-center">Petfinder Name Game</h3>
+        <p class="mb-4 text-center">Can you guess the correct names of these adorable pets?</p>
         <router-link 
           to="/games/pet-name-game" 
-          class="block text-center py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          class="block text-center py-2 px-4 bg-[var(--primary-purple)] text-white rounded hover:bg-[var(--secondary-purple)]"
         >
           Play Now
         </router-link>
       </div>
-      
-      <!-- Additional game cards would go here -->
-      <!-- <div class="game-card bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition">
-        <h3 class="text-xl font-bold mb-2">Pet Breed Quiz</h3>
-        <p class="mb-4">Test your knowledge of different pet breeds!</p>
+
+      <!-- Additional Game Cards -->
+      <!-- <div class="game-card bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition max-w-md w-full">
+        <h3 class="text-xl font-bold mb-2 text-center">Pet Breed Quiz</h3>
+        <p class="mb-4 text-center">Test your knowledge of different pet breeds!</p>
         <router-link 
           to="/games/breed-quiz" 
           class="block text-center py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-600 transition"

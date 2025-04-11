@@ -1,8 +1,8 @@
 <template>
   <div class="app-container">
-    <header class="bg-blue-600 text-white p-4">
-      <h1 class="text-2xl font-bold">Vue Petfinder App</h1>
-      <nav class="mt-2">
+    <header class="bg-[var(--primary-purple)] text-[var(--primary-light)] p-4">
+      <h1 class="text-2xl font-bold text-center">Vue Petfinder App</h1>
+      <nav class="mt-2 text-center">
         <router-link to="/" class="mr-4 hover:underline">Home</router-link>
         <!-- <router-link to="/about" class="hover:underline">About</router-link> -->
       </nav>
@@ -13,7 +13,7 @@
       <router-view></router-view>
     </main>
     
-    <footer class="bg-gray-200 p-4 text-center">
+    <footer class="bg-[var(--secondary-light)] p-4 text-center">
       <p>© 2025 skglavin@gmail.com</p>
     </footer>
   </div>
