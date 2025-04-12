@@ -1,12 +1,12 @@
 <template>
-  <div class="pet-game-container p-6 max-w-lg mx-auto bg-white rounded-xl shadow-md">
-    <h2 class="text-2xl font-bold text-center mb-4">Pet Name Guessing Game</h2>
+  <div class="pet-game-container p-6 max-w-lg mx-auto bg-[var(--secondary-light)] rounded-xl shadow-md">
+    <h2 class="text-2xl font-bold text-center mb-4">Petfinder Name Game</h2>
     
     <!-- Game state display -->
-    <div class="text-center mb-4">
+    <!-- <div class="text-center mb-4">
       <p class="text-lg">Score: {{ score }}</p>
       <p v-if="feedback" :class="feedbackClass">{{ feedback }}</p>
-    </div>
+    </div> -->
 
     <!-- Pet image -->
     <div class="pet-image-container mb-6">
@@ -45,7 +45,7 @@
         :key="index"
         @click="makeGuess(name)"
         :disabled="hasGuessed"
-        class="py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition"
+        class="py-2 px-4 bg-[var(--primary-purple)] text-white rounded hover:bg-[var(--secondary-purple)] disabled:opacity-50 transition"
       >
         {{ name }}
       </button>
@@ -62,7 +62,7 @@
     </div>
     
     <!-- Filter options -->
-    <div class="mt-6">
+    <!-- <div class="mt-6">
       <details class="bg-gray-100 rounded-lg p-4">
         <summary class="font-semibold cursor-pointer">Game Options</summary>
         <div class="mt-4 grid grid-cols-2 gap-4">
@@ -96,7 +96,7 @@
           </button>
         </div>
       </details>
-    </div>
+    </div> -->
   </div>
 </template>
 
