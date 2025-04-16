@@ -101,3 +101,33 @@ class QueryResultsResponse(BaseModel):
     columns: List[str]
     row_count: int
     execution_time: str
+
+
+
+class ParquetReadDataResponse(BaseModel):
+    success: bool
+    count: int
+    sample_data: Optional[List[Dict]] = None
+    data: List[Dict]
+
+    class Config:
+        arbitrary_types_allowed = True
+
+class ParquetMergeResponse(BaseModel):
+    success: bool
+    total_records: int
+    sample_data: List[Dict]
+    merged_file: Optional[str] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class ParquetFilterResponse(BaseModel):
+    success: bool
+    total_records: int
+    filtered_record_counts: Dict[str, int]
+
+    class Config:
+        arbitrary_types_allowed = True
+

@@ -16,8 +16,8 @@ load_dotenv()
 
 
 app = FastAPI(
-    title="Sports Data ETL API",
-    description="API for fetching sports data and processing it through an ETL pipeline to Azure",
+    title="SKG Data ETL API",
+    description="API for data and processing it through an ETL pipeline to Azure",
     version="0.1.0",
 )
 

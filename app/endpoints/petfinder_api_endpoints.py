@@ -3,13 +3,14 @@ import pandas as pd
 import numpy as np
 import random
 import json
-from typing import List, Dict
+import re
+from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta  # Handles month calculations
 from fastapi import HTTPException, APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from app.services.azure_storage_client import AzureDataStorageClient, get_petfinder_storage_client
-from app.models.azure_storage_models import FileListResponse
+from app.models.azure_storage_models import FileListResponse, ParquetReadDataResponse, ParquetMergeResponse
 
 from logger_config import logger
 
@@ -32,15 +33,13 @@ def flatten_pet_data(pet):
     """Flatten nested Petfinder pet data."""
     flattened = {
         "id": pet["id"],
-        "organization_id": pet["organization_id"],
-        "url": pet["url"],
         "type": pet["type"],
         "species": pet["species"],
+        "name": pet["name"],
         "age": pet["age"],
         "gender": pet["gender"],
         "size": pet["size"],
         "coat": pet["coat"],
-        "name": pet["name"],
         "description": pet["description"],
         "status": pet["status"],
         "published_at": pet["published_at"],
@@ -57,9 +56,9 @@ def flatten_pet_data(pet):
         # Flattening attributes
         "spayed_neutered": pet["attributes"]["spayed_neutered"],
         "house_trained": pet["attributes"]["house_trained"],
-        "declawed": pet["attributes"]["declawed"],
+        # "declawed": pet["attributes"]["declawed"],
         "special_needs": pet["attributes"]["special_needs"],
-        "shots_current": pet["attributes"]["shots_current"],
+        # "shots_current": pet["attributes"]["shots_current"],
         # Flattening environment
         "children_friendly": pet["environment"]["children"],
         "dogs_friendly": pet["environment"]["dogs"],
@@ -68,15 +67,43 @@ def flatten_pet_data(pet):
         "tags": ", ".join(pet["tags"]) if pet["tags"] else None,
         # Flattening photos (just one photo here for simplicity)
         "photo_url": pet["photos"][0].get("medium") if pet.get("photos") and len(pet["photos"]) > 0 else None,
+        "photo_url_small": pet["photos"][0].get("small") if pet.get("photos") and len(pet["photos"]) > 0 else None,
         # Flattening contact info
         "contact_email": pet["contact"]["email"],
         "contact_phone": pet["contact"]["phone"],
         "contact_city": pet["contact"]["address"]["city"],
         "contact_state": pet["contact"]["address"]["state"],
         "contact_postcode": pet["contact"]["address"]["postcode"],
-        "contact_country": pet["contact"]["address"]["country"]
+        "contact_country": pet["contact"]["address"]["country"],
+        "organization_id": pet["organization_id"],
+        "url": pet["url"]
     }
     return flattened
+
+
+def clean_pet_name(name: str) -> str:
+    """
+    Clean and standardize pet name values.
+
+    Args:
+        name (str): The raw pet name to be cleaned
+
+    Returns:
+        str: A cleaned version of the name
+    """
+    if pd.isna(name):
+        return None
+
+    # Remove special characters and punctuation
+    cleaned_name = re.sub(r'[^\w\s-]', '', name)
+
+    # Convert to title case for consistency
+    cleaned_name = cleaned_name.title()
+
+    # Remove any leading/trailing whitespace
+    cleaned_name = cleaned_name.strip()
+
+    return cleaned_name if cleaned_name else None
 
 
 async def get_access_token():
@@ -158,7 +185,6 @@ async def fetch_pets_for_month(client, start_date):
 
         return pets
 
-
 async def fetch_recent_pets(months_of_data):
     """Fetch pets from the most recent N months."""
     all_pets = []
@@ -178,7 +204,116 @@ async def fetch_recent_pets(months_of_data):
     return all_pets_dataframe
 
 
+# ---
+async def merge_raw_data_and_save(storage_client: AzureDataStorageClient):
+    """Merge all parquet files in raw_data/ into a single file."""
+    try:
+        # Get list of all parquet files
+        files = await storage_client.list_files()
 
+        # Filter for files in raw_data folder and with .parquet extension
+        raw_data_files = [
+            f for f in files
+            if f["name"].startswith("raw_data/")
+            and f["name"].endswith(".parquet")
+        ]
+
+        if not raw_data_files:
+            return {"message": "No parquet files found in raw_data folder."}
+
+        # Read all pet data
+        all_pets = []
+        for file in raw_data_files:
+            df = await storage_client.read_parquet_data(file["name"])
+            if df is not None and not df.empty:
+                all_pets.append(df)
+
+        if not all_pets:
+            return {"message": "No valid pet data found."}
+
+        # Merge all DataFrames
+        merged_df = pd.concat(all_pets, ignore_index=True)
+
+        # Ensure published_at is a datetime field
+        merged_df["published_at"] = pd.to_datetime(merged_df["published_at"], errors="coerce")
+
+        # Filter out records without photos (keep if either photo_url_small or photo_url exists)
+        merged_df = merged_df[
+            (merged_df["photo_url_small"].notna() & merged_df["photo_url_small"].str.strip().ne("")) |
+            (merged_df["photo_url"].notna() & merged_df["photo_url"].str.strip().ne(""))
+        ]
+
+        # Save merged data to a new file
+        folder_name = "merged_data"
+        file_name = f"merged_pet_data.parquet"
+
+        success = await storage_client.upload_data_as_parquet(
+            data=merged_df,
+            file_name=f"{folder_name}/{file_name}"
+        )
+
+        if not success:
+            logger.error("Failed to upload merged file.")
+            return {"message": "Failed to save merged file."}
+
+        return {
+            "success": True,
+            "merged_file": f"{folder_name}/{file_name}",
+            "total_records": len(merged_df),
+            "sample_data": merged_df.head().to_dict('records')
+        }
+
+    except Exception as e:
+        logger.exception("Failed to merge parquet files")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+# ---
+async def create_game_boards_parquet_file(storage_client: AzureDataStorageClient):
+    """
+    Create and save a file containing 10 game boards, each with 5 random pets.
+    """
+    try:
+        # Generate 10 game boards
+        game_boards = []
+
+        for _ in range(10):
+            response = await get_random_pet_records(storage_client=storage_client)
+
+            if not response["data"]:
+                raise ValueError("No pets found")
+
+            game_boards.append(response["data"])
+
+        # Create DataFrame with the game boards data
+        df = pd.DataFrame({
+            "game_board": game_boards
+        })
+
+        # Save to parquet file
+        file_name = "game_boards.parquet"
+
+        success = await storage_client.upload_data_as_parquet(data=df, file_name=file_name)
+
+        if not success:
+            logger.error("Failed to upload game boards file.")
+            return {"message": "Failed to save game boards."}
+
+        return {
+            "message": f"Created and saved {len(game_boards)} game boards to {file_name}",
+            "game_board_count": len(game_boards)
+        }
+
+    except Exception as e:
+        logger.exception("Failed to create game boards file")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+# ---
+# ---
+# --- Endpoints
+# ---
+# ---
 
 
 # Root
@@ -188,6 +323,7 @@ async def petfinder_root():
     return {"message": "petfinder root"}
 
 
+# --- List parquet files in the container
 @router.get("/files", response_model=List[FileListResponse])
 async def list_parquet_files(storage_client: AzureDataStorageClient = Depends(get_storage)):
     """
@@ -207,8 +343,9 @@ async def list_parquet_files(storage_client: AzureDataStorageClient = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/pets")
-async def fetch_petfinder_pets(storage_client: AzureDataStorageClient = Depends(get_storage)):
+# --- Fetch latest 24 months of petfinder pets withtin 500miles of Edmonton that have a photo and save to storage
+@router.post("/pets/raw_data")
+async def fetch_and_save_petfinder_pets_raw_data(storage_client: AzureDataStorageClient = Depends(get_storage)):
     try:
         pets_data = await fetch_recent_pets(months_of_data=24)
         if pets_data.empty:
@@ -220,208 +357,299 @@ async def fetch_petfinder_pets(storage_client: AzureDataStorageClient = Depends(
         # Ensure published_at is a datetime field
         df["published_at"] = pd.to_datetime(df["published_at"], errors="coerce")
 
-        # Filter out records without a photo
-        df = df[df["photo_url"].notna() & df["photo_url"].str.strip().ne("")]
+        # Convert published_at to string format "YYYYMMDD"
+        df["published_at"] = df["published_at"].dt.strftime("%Y%m%d")
+
+        # Filter out records without a photo (keep if either photo_url_small or photo_url exists)
+        df = df[
+            (df["photo_url_small"].notna() & df["photo_url_small"].str.strip().ne("")) |
+            (df["photo_url"].notna() & df["photo_url"].str.strip().ne(""))
+        ]
 
         # Partition data by month
-        for month, month_df in df.groupby(df["published_at"].dt.to_period("M")):
-            month_str = month.strftime("%Y-%m")  # Format: "YYYY-MM"
+        for month, month_df in df.groupby(df["published_at"].str.slice(stop=6)):  # Group by YYYYMM
+            month_str = month  # Format: "YYYYMM"
+            folder_name = "raw_data"
             file_name = f"petfinder_{month_str}.parquet"
 
             # Upload partitioned data
-            success = await storage_client.upload_data_as_parquet(data=month_df, file_name=file_name)
+            success = await storage_client.upload_data_as_parquet(data=month_df, file_name=f"{folder_name}/{file_name}")
 
             if not success:
                 logger.error(f"Failed to upload data for {month_str}")
 
-        return {"message": "Data uploaded successfully", "partitions": df["published_at"].dt.to_period("M").nunique()}
+            logger.info(f"Data file saved: {folder_name}/{file_name}")
+
+        return {"message": "Data uploaded successfully", "partitions": df["published_at"].str.slice(stop=6).nunique()}
 
     except Exception as e:
         logger.exception("Failed to upload data as parquet")
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
-    
 
-@router.get("/pets/read", response_model=List[Dict])
-async def read_petfinder_pets_from_storage(
-    storage_client: AzureDataStorageClient = Depends(get_storage),
-    pet_type: str = None
-    ):
+
+# --- Read a file by name in raw_data/
+@router.get("/pets/raw_data/{filename}", response_model=ParquetReadDataResponse)
+async def get_parquet_raw_data(
+    filename: str,
+    num_samples: Optional[int] = 5,
+    storage_client: AzureDataStorageClient = Depends(get_storage)
+):
     """
-    Read and return stored pet data from Azure Storage, with optional filters.
-    - `pet_type`: Filter by pet type (e.g., 'Cat', 'Dog').
+    Read and return contents of a specific Parquet file.
+    - `filename`: Name of the Parquet file to read
     """
     try:
-        # List all stored Parquet files in the container
-        files = await storage_client.list_files()
-        parquet_files = [f for f in files if f["name"].endswith(".parquet")]
+        full_file_path = f"raw_data/{filename}"
+        # Read the Parquet file from storage
+        df = await storage_client.read_parquet_data(full_file_path)
 
-        logger.info(f"parquet_files = {parquet_files}")
+        if df is None or df.empty:
+            raise HTTPException(status_code=404, detail=f"File '{filename}' not found or empty")
 
-        if not parquet_files:
-            return {"message": "No pet data found in storage."}
+        # Convert DataFrame to list of dictionaries for JSON serialization
+        data = df.to_dict('records')
 
-        # --- if you're passing multiple files at once, map them properly
-        # df_list = await asyncio.gather(
-        #     *[storage_client.read_parquet_data(f["name"]) for f in parquet_files]
-        # )
+        return {
+            "success": True,
+            "count": len(data),
+            "sample_data": data[:num_samples], # Show first 5 records as sample
+            "data": data
+        }
 
-        # Read all Parquet files
-        all_data = []
-        for file in parquet_files:
-            file_name = file["name"]
-            df = await storage_client.read_parquet_data(file_name)
-
-            if df is None or df.empty:
-                logger.info(f"❌ Empty DataFrame in {file_name}")
-
-            else:
-                logger.info(f"✅ Successfully read {len(df)} rows from {file_name}")
-                all_data.append(df)
-
-        # Merge all data into a single DataFrame
-        full_df = pd.concat(all_data, ignore_index=True)
-
-        # Apply the 'pet_type' filter if provided
-        if pet_type:
-            full_df = full_df[full_df["type"].str.lower() == pet_type.lower()]
-
-        # Convert to dict for JSON response
-        result = full_df.to_dict(orient="records")
-   
-        logger.info(f"Read total {len(full_df)} pet records.")
-        logger.info(f"Sample data: {full_df.head()}")
-        
-        return result
-    
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to read pet data from storage")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        logger.exception(f"Failed to read parquet file '{filename}'")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )
     
 
-
-@router.get("/pets/gameboards")
-async def get_game_boards(
-    storage_client: AzureDataStorageClient = Depends(get_storage)
-):
-    """Read the generated gameboards file and return the gameboards as JSON."""
+# --- Merge the raw_data into a single merged_pet_data
+@router.post("/pets/merged_data", response_model=ParquetMergeResponse)
+async def merge_raw_data_parquet_files(storage_client: AzureDataStorageClient = Depends(get_storage)):
+    """
+    Merge all parquet files in raw_data/ into a single file.
+    """
     try:
-        file_name = "gameboards.parquet"
+        response = await merge_raw_data_and_save(storage_client)
 
-        # Check if the file exists
-        files = await storage_client.list_files()
-        if file_name not in [f["name"] for f in files]:
-            return {"message": "Gameboards file not found. Please generate it first."}
-
-        # Read the Parquet file
-        gameboard_df = await storage_client.read_parquet_data(file_name)
-
-        if gameboard_df is None or gameboard_df.empty:
-            return {"message": "Gameboards file is empty."}
-
-        # Convert timestamps back to string if needed
-        if "published_at" in gameboard_df.columns:
-            gameboard_df["published_at"] = gameboard_df["published_at"].astype(str)
-
-        # Reconstruct gameboards from the DataFrame
-        game_boards = []
-        for gameboard_id, board_df in gameboard_df.groupby("gameboard_id"):
-            game_boards.append({
-                f"pet{j+1}": pet for j, pet in enumerate(board_df.to_dict(orient="records"))
-            })
-
-        return {"gameboards": game_boards}
+        return response
 
     except Exception as e:
-        logger.exception("Failed to read gameboards file")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        logger.exception("Failed to process parquet merge request")
+        raise HTTPException(status_code=500, detail=str(e))
     
 
-@router.post("/pets/gameboards/generate")
-async def generate_game_boards_file(
-    type: str = Query(None),
-    age: str = Query(None),
-    gender: str = Query(None),
-    name: str = Query(None),
-    size: str = Query(None),
-    primary_breed: str = Query(None),
-    primary_color: str = Query(None),
-    storage_client: AzureDataStorageClient = Depends(get_storage)
+# --- Read file by name in merged_data/
+@router.get("/pets/merged_data", response_model=ParquetReadDataResponse)
+async def get_parquet_merged_data(
+    pet_type: str = None,
+    age: int = None,
+    gender: str = None,
+    size: str = None,
+    # name: str = None,
+    num_samples: int = 5,
+    storage_client: AzureDataStorageClient = Depends(get_storage),
 ):
-    """Generate a single Parquet file containing gameboards with unique pets (up to 12)."""
+    """
+    Read and return contents of a specific Parquet file with optional filtering.
+    - `num_samples`: Number of sample records to return (default: 5)
+    - `pet_type`: Filter by pet type
+    - `age`: Filter by age
+    - `gender`: Filter by gender
+    - `size`: Filter by size
+    - `name`: Filter by name
+    """
     try:
-        # List available parquet files
-        files = await storage_client.list_files()
-        parquet_files = [f for f in files if f["name"].endswith(".parquet")]
+        full_file_path = "merged_data/merged_pet_data.parquet"
+        # Read the Parquet file from storage
+        df = await storage_client.read_parquet_data(full_file_path)
 
-        if not parquet_files:
-            return {"message": "No pet data found in storage."}
-
-        # Read and merge all parquet files
-        all_data = []
-        for file in parquet_files:
-            df = await storage_client.read_parquet_data(file["name"])
-            if df is not None and not df.empty:
-                all_data.append(df)
-
-        if not all_data:
-            return {"message": "No valid pet data available."}
-
-        # Combine all data
-        full_df = pd.concat(all_data, ignore_index=True)
+        if df is None or df.empty:
+            raise HTTPException(status_code=404, detail="File 'merged_pet_data.parquet' not found or empty")
 
         # Apply filters
-        filters = {
-            "type": type,
-            "age": age,
-            "gender": gender,
-            "name": name,
-            "size": size,
-            "primary_breed": primary_breed,
-            "primary_color": primary_color,
+        filtered_df = df
+        if pet_type:
+            filtered_df = filtered_df[filtered_df["type"] == pet_type]
+        if age is not None:
+            filtered_df = filtered_df[filtered_df["age"] == age]
+        if gender:
+            filtered_df = filtered_df[filtered_df["gender"] == gender]
+        if size:
+            filtered_df = filtered_df[filtered_df["size"] == size]
+        # if name:
+            # # Clean the input name
+            # cleaned_name = clean_pet_name(name)
+
+            # if cleaned_name:
+            #     filtered_df = filtered_df[filtered_df["name"].str.contains(cleaned_name, na=False)]
+        
+        # Clean names in the resulting DataFrame
+        # filtered_df["cleaned_name"] = filtered_df.apply(lambda row: clean_pet_name(row["name"]), axis=1)
+
+        # Convert DataFrame to list of dictionaries for JSON serialization
+        data = filtered_df.to_dict('records')
+
+        return {
+            "success": True,
+            "count": len(data),
+            "sample_data": data[:num_samples],  # Show first 5 records as sample
+            "data": data
         }
-        for column, value in filters.items():
-            if value:
-                full_df = full_df[full_df[column] == value]
 
-        # Ensure published_at is a string
-        if "published_at" in full_df.columns:
-            full_df["published_at"] = pd.to_datetime(full_df["published_at"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%S")
-
-        # Ensure there are enough pets
-        total_pets = len(full_df)
-        if total_pets < 5:
-            return {"message": "Not enough unique pets available to create even one game board."}
-
-        # Shuffle the pets for randomness
-        shuffled_pets = full_df.sample(frac=1, random_state=42).reset_index(drop=True)
-
-        # Determine the number of possible game boards
-        num_boards = total_pets // 5  # Each board needs 5 pets
-
-        # Split into game boards
-        game_boards = []
-        for i in range(num_boards):
-            board_pets = shuffled_pets.iloc[i * 5: (i + 1) * 5].copy()
-            game_boards.append(board_pets)
-
-        # Flatten gameboards into a single DataFrame for saving
-        gameboard_df = pd.concat(game_boards, keys=range(len(game_boards)), names=["gameboard_id"]).reset_index(level=0)
-
-        # Save gameboards to a single Parquet file
-        file_name = "gameboards.parquet"
-        success = await storage_client.upload_data_as_parquet(data=gameboard_df, file_name=file_name)
-
-        if not success:
-            logger.error("Failed to upload gameboards file.")
-            return {"message": "Failed to generate gameboards file."}
-
-        return {"message": "Gameboards file generated successfully", "file_name": file_name}
-
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.exception("Failed to generate gameboards file")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        logger.exception("Failed to read parquet file 'merged_pet_data.parquet'")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )
+
+
+# --- get random set of pets from merged_pet_data
+@router.get("/pets/merged_data/random")
+async def get_random_pet_records(
+    num_samples: int = 5,
+    pet_type: str = None,
+    age: int = None,
+    gender: str = None,
+    size: str = None,
+    storage_client: AzureDataStorageClient = Depends(get_storage)
+):
+    """
+    Return a random sample of pet records from the merged data file.
+    - `num_samples`: Number of samples to return (default: 5)
+    - `pet_type`: Filter by pet type
+    - `age`: Filter by age
+    - `gender`: Filter by gender
+    - `size`: Filter by size
+    """
+    try:
+        full_file_path = "merged_data/merged_pet_data.parquet"
+        # Read the Parquet file from storage
+        df = await storage_client.read_parquet_data(file_name=full_file_path)
+
+        if df is None or df.empty:
+            raise HTTPException(status_code=404, detail="File 'merged_pet_data.parquet' not found or empty")
+
+        # Apply filters first
+        filtered_df = df
+        if pet_type:
+            filtered_df = filtered_df[filtered_df["type"] == pet_type]
+        if age is not None:
+            filtered_df = filtered_df[filtered_df["age"] == age]
+        if gender:
+            filtered_df = filtered_df[filtered_df["gender"] == gender]
+        if size:
+            filtered_df = filtered_df[filtered_df["size"] == size]
+
+        # Get random sample
+        if len(filtered_df) >= num_samples:
+            sample_data = filtered_df.sample(n=num_samples).to_dict('records')
+        else:
+            sample_data = filtered_df.to_dict('records')
+
+        return {
+            "success": True,
+            "message": f"Returned {len(sample_data)} random records from file 'merged_pet_data.parquet'",
+            "data": sample_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get random pet records from 'merged_pet_data.parquet'")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )
     
 
+# --- generate game boards
+@router.post("/pets/game_boards", response_model=Dict)
+async def create_set_of_game_boards(storage_client: AzureDataStorageClient = Depends(get_storage)):
+    """
+    Create and save a file containing 10 game boards, each with 5 random pets.
+    """
+    try:
+        result = await create_game_boards_parquet_file(storage_client)
+        return result
+    except Exception as e:
+        logger.exception("Failed to process game boards request")
+        raise HTTPException(status_code=500, detail=str(e))
+    
 
+# --- Read file by name in game_boards.parquet
+@router.get("/pets/game_boards", response_model=ParquetReadDataResponse)
+async def get_parquet_game_boards(
+    pet_type: str = None,
+    age: int = None,
+    gender: str = None,
+    size: str = None,
+    # name: str = None,
+    # num_samples: int = 5,
+    storage_client: AzureDataStorageClient = Depends(get_storage),
+):
+    """
+    Read and return contents of a specific Parquet file with optional filtering.
+    - `num_samples`: Number of sample records to return (default: 5)
+    - `pet_type`: Filter by pet type
+    - `age`: Filter by age
+    - `gender`: Filter by gender
+    - `size`: Filter by size
+    - `name`: Filter by name
+    """
+    try:
+        full_file_path = "game_boards.parquet"
+        # Read the Parquet file from storage
+        df = await storage_client.read_parquet_data(full_file_path)
+
+        if df is None or df.empty:
+            raise HTTPException(status_code=404, detail="File 'game_boards.parquet' not found or empty")
+
+        # Apply filters
+        filtered_df = df
+        if pet_type:
+            filtered_df = filtered_df[filtered_df["type"] == pet_type]
+        if age is not None:
+            filtered_df = filtered_df[filtered_df["age"] == age]
+        if gender:
+            filtered_df = filtered_df[filtered_df["gender"] == gender]
+        if size:
+            filtered_df = filtered_df[filtered_df["size"] == size]
+        # if name:
+        #     # Clean the input name
+        #     cleaned_name = clean_pet_name(name)
+
+        #     if cleaned_name:
+        #         filtered_df = filtered_df[filtered_df["name"].str.contains(cleaned_name, na=False)]
+        
+        # Clean names in the resulting DataFrame
+        # filtered_df["cleaned_name"] = filtered_df.apply(lambda row: clean_pet_name(row["name"]), axis=1)
+
+        # Convert numpy.ndarray to list for JSON serialization
+        for col in filtered_df.select_dtypes([np.ndarray]).columns:
+            filtered_df[col] = filtered_df[col].apply(list)
+
+        # Convert DataFrame to list of dictionaries for JSON serialization
+        data = filtered_df.to_dict('records')
+
+        return {
+            "success": True,
+            "count": len(data),
+            # "sample_data": data[:num_samples],  # Show first 5 records as sample
+            "data": data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to read parquet file 'game_boards.parquet'")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )

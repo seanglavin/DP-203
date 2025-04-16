@@ -2,12 +2,6 @@
   <div class="pet-game-container p-6 max-w-lg mx-auto bg-[var(--secondary-light)] rounded-xl shadow-md">
     <h2 class="text-2xl font-bold text-center mb-4">Petfinder Name Game</h2>
     
-    <!-- Game state display -->
-    <!-- <div class="text-center mb-4">
-      <p class="text-lg">Score: {{ score }}</p>
-      <p v-if="feedback" :class="feedbackClass">{{ feedback }}</p>
-    </div> -->
-
     <!-- Pet image -->
     <div class="pet-image-container mb-6">
       <div v-if="loading" class="flex justify-center items-center h-64">
@@ -17,8 +11,8 @@
         </div>
       </div>
       <img 
-        v-else-if="currentPet.photo_url" 
-        :src="currentPet.photo_url" 
+        v-else-if="currentPet && currentPet.photo_url_small" 
+        :src="currentPet.photo_url_small" 
         :alt="hasGuessed ? currentPet.name : 'Mystery pet'" 
         class="w-full h-64 object-cover rounded-lg"
       >
@@ -28,7 +22,7 @@
     </div>
 
     <!-- Pet information (shown after guessing) -->
-    <div v-if="hasGuessed" class="mb-6 p-4 bg-gray-100 rounded-lg">
+    <div v-if="hasGuessed && currentPet" class="mb-6 p-4 bg-gray-100 rounded-lg">
       <h3 class="font-bold text-lg mb-2">{{ currentPet.name }}</h3>
       <p><span class="font-semibold">Type:</span> {{ currentPet.type }}</p>
       <p v-if="currentPet.primary_breed"><span class="font-semibold">Breed:</span> {{ currentPet.primary_breed }}</p>
@@ -60,43 +54,6 @@
         {{ hasGuessed ? 'Next Pet' : 'Skip This Pet' }}
       </button>
     </div>
-    
-    <!-- Filter options -->
-    <!-- <div class="mt-6">
-      <details class="bg-gray-100 rounded-lg p-4">
-        <summary class="font-semibold cursor-pointer">Game Options</summary>
-        <div class="mt-4 grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Pet Type</label>
-            <select v-model="filters.type" class="w-full p-2 border rounded">
-              <option value="">Any Type</option>
-              <option value="Dog">Dogs</option>
-              <option value="Cat">Cats</option>
-              <option value="Rabbit">Rabbits</option>
-              <option value="Bird">Birds</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Pet Age</label>
-            <select v-model="filters.age" class="w-full p-2 border rounded">
-              <option value="">Any Age</option>
-              <option value="Baby">Baby</option>
-              <option value="Young">Young</option>
-              <option value="Adult">Adult</option>
-              <option value="Senior">Senior</option>
-            </select>
-          </div>
-        </div>
-        <div class="mt-4">
-          <button 
-            @click="applyFilters" 
-            class="w-full py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-          >
-            Apply Filters & Restart Game
-          </button>
-        </div>
-      </details>
-    </div> -->
   </div>
 </template>
 
@@ -110,11 +67,11 @@ export default {
       feedback: '',
       feedbackClass: '',
       loading: true,
-      currentPet: {},
+      currentPet: null,
       nameOptions: [],
       gameBoards: [],
       currentBoardIndex: 0,
-      currentPetIndex: 1, // Changed to 1 since pets are now indexed starting with 1
+      currentPetIndex: 0, // Changed to 0 to match array indexing
       filters: {
         type: '',
         age: ''
@@ -130,28 +87,21 @@ export default {
       this.feedback = '';
       
       try {
-        // Construct query parameters based on filters
-        const queryParams = new URLSearchParams();
-        if (this.filters.type) queryParams.append('type', this.filters.type);
-        if (this.filters.age) queryParams.append('age', this.filters.age);
-        
-        const queryString = queryParams.toString();
-        const endpoint = `http://localhost:8000/api/petfinder/pets/gameboards${queryString ? '?' + queryString : ''}`;
-
-        console.log("Fetching from:", endpoint); // Log the endpoint URL
+        const endpoint = `http://localhost:8000/api/petfinder/pets/game_boards`;
+        console.log("Fetching from:", endpoint);
 
         const response = await fetch(endpoint);
-        console.log("Raw response:", response); // Log the raw response object
+        console.log("Raw response:", response);
 
         const data = await response.json();
-        console.log("Fetched data:", data); // Log the parsed JSON data
+        console.log("Fetched data:", data);
         
-        if (data.gameboards && data.gameboards.length > 0) {
-          this.gameBoards = data.gameboards;
-          console.log("Assigned gameBoards:", this.gameBoards); // Log assigned gameBoards
+        if (data.data && data.data.length > 0) {
+          this.gameBoards = data.data;
+          console.log("Assigned gameBoards:", this.gameBoards);
 
           this.currentBoardIndex = 0;
-          this.currentPetIndex = 1; // Start with pet1
+          this.currentPetIndex = 0;
           this.loadCurrentPet();
         } else {
           this.feedback = 'No pets found with the current filters. Please try different options.';
@@ -172,37 +122,40 @@ export default {
       this.feedback = '';
       
       // Check if we have a current game board
-      if (!this.gameBoards[this.currentBoardIndex]) {
+      const currentBoard = this.gameBoards[this.currentBoardIndex];
+      if (!currentBoard || !currentBoard.game_board) {
         this.fetchGameBoards();
         return;
       }
-      
-      // Get the current pet using the pet key (pet1, pet2, etc.)
-      const currentBoard = this.gameBoards[this.currentBoardIndex];
-      const petKey = `pet${this.currentPetIndex}`;
-      this.currentPet = currentBoard[petKey];
-      
-      console.log("Current pet key:", petKey);
-      console.log("Current pet object:", this.currentPet); // Log the current pet
 
-      if (!this.currentPet) {
+      // Get the current pet from the game_board array
+      const pet = currentBoard.game_board[this.currentPetIndex];
+
+      console.log("Current pet index:", this.currentPetIndex);
+      console.log("Current pet object:", pet);
+
+      if (!pet) {
         // Move to next board or fetch new boards if at the end
         if (this.currentBoardIndex < this.gameBoards.length - 1) {
           this.currentBoardIndex++;
-          this.currentPetIndex = 1; // Reset to pet1 for the next board
+          this.currentPetIndex = 0;
           this.loadCurrentPet();
         } else {
           this.fetchGameBoards();
         }
         return;
       }
-      
+
+      this.currentPet = pet;
+
       // Generate name options
       this.generateNameOptions();
       this.loading = false;
     },
     
     generateNameOptions() {
+      if (!this.currentPet) return;
+      
       // Always include the correct name
       const options = [this.currentPet.name];
       
@@ -241,13 +194,13 @@ export default {
       // Collect all pet names from all game boards
       const names = [];
       this.gameBoards.forEach(board => {
-        // Iterate through each pet in the board (pet1, pet2, etc.)
-        Object.keys(board).forEach(petKey => {
-          const pet = board[petKey];
-          if (pet && pet.name && pet.name !== this.currentPet.name) {
-            names.push(pet.name);
-          }
-        });
+        if (board.game_board) {
+          board.game_board.forEach(pet => {
+            if (pet && pet.name && (!this.currentPet || pet.name !== this.currentPet.name)) {
+              names.push(pet.name);
+            }
+          });
+        }
       });
       return names;
     },
@@ -279,10 +232,15 @@ export default {
       
       // Check if we need to move to the next board
       const currentBoard = this.gameBoards[this.currentBoardIndex];
-      const maxPets = Object.keys(currentBoard).filter(key => key.startsWith('pet')).length;
+      if (!currentBoard || !currentBoard.game_board) {
+        this.fetchGameBoards();
+        return;
+      }
       
-      if (this.currentPetIndex > maxPets) {
-        this.currentPetIndex = 1; // Reset to pet1
+      const maxPets = currentBoard.game_board.length;
+      
+      if (this.currentPetIndex >= maxPets) {
+        this.currentPetIndex = 0; // Reset to first pet
         this.currentBoardIndex++;
         
         // Check if we're out of boards
