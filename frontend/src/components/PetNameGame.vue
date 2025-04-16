@@ -1,7 +1,14 @@
 <template>
   <div class="pet-game-container p-6 max-w-lg mx-auto bg-[var(--secondary-light)] rounded-xl shadow-md">
     <h2 class="text-2xl font-bold text-center mb-4">Petfinder Name Game</h2>
-    
+
+    <!-- Score and Streak Display -->
+    <div class="text-center mb-4">
+      <p class="text-lg">Score: <span class="font-bold">{{ score }}</span></p>
+      <p class="text-sm">Current Streak: <span class="font-bold">{{ currentStreak }}</span> (Max: {{ maxStreak }})</p>
+    </div>
+
+
     <!-- Pet image -->
     <div class="pet-image-container mb-6">
       <div v-if="loading" class="flex justify-center items-center h-64">
@@ -19,6 +26,11 @@
       <div v-else class="flex justify-center items-center h-64 bg-gray-200 rounded-lg">
         <p class="text-gray-500">No image available</p>
       </div>
+    </div>
+
+    <!-- Feedback Message -->
+    <div v-if="feedback" :class="['text-center mb-4 font-semibold', feedbackClass]">
+      {{ feedback }}
     </div>
 
     <!-- Pet information (shown after guessing) -->
@@ -63,6 +75,8 @@ export default {
   data() {
     return {
       score: 0,
+      currentStreak: 0,
+      maxStreak: 0,
       hasGuessed: false,
       feedback: '',
       feedbackClass: '',
@@ -71,7 +85,7 @@ export default {
       nameOptions: [],
       gameBoards: [],
       currentBoardIndex: 0,
-      currentPetIndex: 0, // Changed to 0 to match array indexing
+      currentPetIndex: 0,
       filters: {
         type: '',
         age: ''
@@ -215,41 +229,58 @@ export default {
     },
     
     makeGuess(name) {
+      if (!this.currentPet) return; // Ensure currentPet is loaded
       this.hasGuessed = true;
-      
+
       if (name === this.currentPet.name) {
-        this.feedback = 'Correct! This pet is indeed named ' + name;
-        this.feedbackClass = 'text-green-600 font-bold';
+        this.feedback = `Correct! This pet is indeed named ${name}.`;
+        this.feedbackClass = 'text-green-600';
         this.score += 10;
+        this.currentStreak++;
+        if (this.currentStreak > this.maxStreak) {
+          this.maxStreak = this.currentStreak;
+        }
       } else {
-        this.feedback = `Incorrect. The pet's name is ${this.currentPet.name}`;
-        this.feedbackClass = 'text-red-600 font-bold';
+        this.feedback = `Incorrect. The pet's name is ${this.currentPet.name}.`;
+        this.feedbackClass = 'text-red-600';
+        this.currentStreak = 0;
       }
     },
     
     nextPet() {
+      // If skipping (hasGuessed is false), reset the streak
+      if (!this.hasGuessed) {
+        this.currentStreak = 0;
+        this.feedback = `Skipped. The pet's name was ${this.currentPet?.name || 'unknown'}.`; // Optional feedback for skip
+        this.feedbackClass = 'text-orange-600';
+      } else {
+         // Clear feedback for the next round only if they guessed
+         this.feedback = '';
+         this.feedbackClass = '';
+      }
+
+
       this.currentPetIndex++;
-      
-      // Check if we need to move to the next board
+
       const currentBoard = this.gameBoards[this.currentBoardIndex];
       if (!currentBoard || !currentBoard.game_board) {
-        this.fetchGameBoards();
+        this.fetchGameBoards(); // Fetch if board data is missing
         return;
       }
-      
+
       const maxPets = currentBoard.game_board.length;
-      
+
       if (this.currentPetIndex >= maxPets) {
-        this.currentPetIndex = 0; // Reset to first pet
+        this.currentPetIndex = 0;
         this.currentBoardIndex++;
-        
-        // Check if we're out of boards
+
         if (this.currentBoardIndex >= this.gameBoards.length) {
-          this.fetchGameBoards();
+          // Optionally show a "Game Over" or fetch new boards
+          this.fetchGameBoards(); // Fetch new boards for now
           return;
         }
       }
-      
+
       this.loadCurrentPet();
     },
     

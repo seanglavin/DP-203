@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <header class="bg-[var(--primary-purple)] text-[var(--primary-light)] p-4">
-      <h1 class="text-2xl font-bold text-center">Vue Petfinder App</h1>
+      <h1 class="text-2xl font-bold text-center">Azure Storage API App</h1>
       <nav class="mt-2 text-center">
         <router-link to="/" class="mr-4 hover:underline">Home</router-link>
         <!-- <router-link to="/about" class="hover:underline">About</router-link> -->
