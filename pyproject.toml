@@ -1,11 +1,17 @@
 [project]
 name = "dp-203"
 version = "0.1.0"
-description = "Add your description here"
+description = "Data API project"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.12",
     "pandas>=2.2.3",
-    "uvicorn>=0.34.1",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "azure-storage-blob",
+    "nba-api",
+    "pyarrow",
+    "requests",
+    "httpx"
 ]

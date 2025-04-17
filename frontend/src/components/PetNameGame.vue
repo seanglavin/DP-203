@@ -17,19 +17,25 @@
           <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
         </div>
       </div>
+
+      <!-- Image -->
       <img 
         v-else-if="currentPet && currentPet.photo_url_small" 
         :src="currentPet.photo_url_small" 
         :alt="hasGuessed ? currentPet.name : 'Mystery pet'" 
         class="w-full h-64 object-cover rounded-lg"
       >
+      <!-- Placeholder if no image -->
       <div v-else class="flex justify-center items-center h-64 bg-gray-200 rounded-lg">
         <p class="text-gray-500">No image available</p>
       </div>
     </div>
 
     <!-- Feedback Message -->
-    <div v-if="feedback" :class="['text-center mb-4 font-semibold', feedbackClass]">
+    <div 
+        v-if="feedback" 
+        :class="['absolute inset-0 flex items-center justify-center p-4 text-center font-semibold text-white bg-black bg-opacity-60 rounded-lg', feedbackClass]"
+      >
       {{ feedback }}
     </div>
 
@@ -160,7 +166,8 @@ export default {
         return;
       }
 
-      this.currentPet = pet;
+      // Clean the name before assigning
+      this.currentPet = { ...pet, name: this.cleanPetName(pet.name) };
 
       // Generate name options
       this.generateNameOptions();
@@ -170,17 +177,18 @@ export default {
     generateNameOptions() {
       if (!this.currentPet) return;
       
-      // Always include the correct name
-      const options = [this.currentPet.name];
+      // Always include the cleaned correct name
+      const correctCleanedName = this.currentPet.name; // Already cleaned in loadCurrentPet
+      const options = [correctCleanedName];
       
-      // Add random names from other pets in different game boards
-      const allPetNames = this.getAllPetNames();
+      // Add cleaned random names from other pets
+      const allPetNames = this.getAllPetNames(); // Names are cleaned in getAllPetNames
       
       while (options.length < 4 && allPetNames.length > 0) {
         const randomIndex = Math.floor(Math.random() * allPetNames.length);
         const randomName = allPetNames[randomIndex];
         
-        if (!options.includes(randomName) && randomName !== this.currentPet.name) {
+        if (!options.includes(randomName) && randomName !== correctCleanedName) {
           options.push(randomName);
         }
         
@@ -218,7 +226,36 @@ export default {
       });
       return names;
     },
-    
+
+    cleanPetName(name) {
+      if (!name) return '';
+      let cleaned = name;
+
+      // Attempt to split by " - " and take the first part
+      const parts = cleaned.split(' - ');
+      cleaned = parts[0]; 
+
+      // Remove common patterns like (see desc.), (A...), etc.
+      cleaned = cleaned.replace(/\(.*?\)/g, '');
+
+      // Remove leading/trailing non-alphanumeric chars (except spaces)
+      cleaned = cleaned.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9\s]+$/g, '');
+
+      // Remove specific unwanted characters like * / \
+      cleaned = cleaned.replace(/[*\\/]/g, '');
+
+      // Replace multiple spaces with a single space
+      cleaned = cleaned.replace(/\s+/g, ' ');
+
+      // Trim whitespace
+      cleaned = cleaned.trim();
+
+      // Optional: Capitalize first letter of each word (Title Case)
+      // cleaned = cleaned.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+      return cleaned;
+    },
+
     shuffleArray(array) {
       const newArray = [...array];
       for (let i = newArray.length - 1; i > 0; i--) {
@@ -229,19 +266,20 @@ export default {
     },
     
     makeGuess(name) {
-      if (!this.currentPet) return; // Ensure currentPet is loaded
+      if (!this.currentPet) return;
       this.hasGuessed = true;
 
+      // Compare with the cleaned name
       if (name === this.currentPet.name) {
-        this.feedback = `Correct! This pet is indeed named ${name}.`;
+        this.feedback = `Correct! ${this.currentPet.name}`;
         this.feedbackClass = 'text-green-600';
-        this.score += 10;
+        this.score += 1;
         this.currentStreak++;
         if (this.currentStreak > this.maxStreak) {
           this.maxStreak = this.currentStreak;
         }
       } else {
-        this.feedback = `Incorrect. The pet's name is ${this.currentPet.name}.`;
+        this.feedback = `Incorrect! The is ${this.currentPet.name}`;
         this.feedbackClass = 'text-red-600';
         this.currentStreak = 0;
       }
@@ -251,14 +289,13 @@ export default {
       // If skipping (hasGuessed is false), reset the streak
       if (!this.hasGuessed) {
         this.currentStreak = 0;
-        this.feedback = `Skipped. The pet's name was ${this.currentPet?.name || 'unknown'}.`; // Optional feedback for skip
+        this.feedback = `Skipped! ${this.currentPet?.name || 'unknown'}.`;
         this.feedbackClass = 'text-orange-600';
       } else {
          // Clear feedback for the next round only if they guessed
          this.feedback = '';
          this.feedbackClass = '';
       }
-
 
       this.currentPetIndex++;
 

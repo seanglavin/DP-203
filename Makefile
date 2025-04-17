@@ -5,6 +5,18 @@ export
 
 .PHONY: up down rebuild logs logs-api prune aider-llama aider-deepseek shell-api shell-aider health
 
+# Create a local uv virtual environment if it doesn't exist
+venv:
+	uv venv --python python3.12
+	uv pip install --all
+
+# Sync dependencies from lockfile locally
+sync:
+	uv pip install --requirements uv.lock
+
+uv-clean:
+	rm -rf .venv uv.lock
+
 
 # Start only the API service
 up:
@@ -19,7 +31,6 @@ rebuild:
 	docker-compose down -v --remove-orphans
 	docker system prune -f
 	docker-compose build --no-cache
-	docker-compose up -d
 
 
 aider-deepseek:
@@ -28,7 +39,7 @@ aider-deepseek:
 
 # View logs
 logs:
-	docker logs -f sports_api_backend
+	docker logs --tail=100 fastapi_backend
 
 logs-api:
 	docker-compose logs -f fastapi_backend
@@ -42,7 +53,7 @@ prune:
 
 # Shell into containers
 shell-api:
-	docker-compose exec fastapi_backend bash || docker-compose exec fastapi_backend sh
+	docker-compose exec fastapi_backend sh -c "bash || sh"
 
 
 # Health check the API

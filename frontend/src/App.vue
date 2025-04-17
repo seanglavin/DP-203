@@ -14,7 +14,7 @@
     </main>
     
     <footer class="bg-[var(--secondary-light)] p-4 text-center">
-      <p>© 2025 skglavin@gmail.com</p>
+      <p>© 2025 skg cat.</p>
     </footer>
   </div>
 </template>
