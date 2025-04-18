@@ -5,7 +5,7 @@
     <!-- Score and Streak Display -->
     <div class="text-center mb-4">
       <p class="text-lg">Score: <span class="font-bold">{{ score }}</span></p>
-      <p class="text-sm">Current Streak: <span class="font-bold">{{ currentStreak }}</span> (Max: {{ maxStreak }})</p>
+      <p class="text-sm">Streak: <span class="font-bold">{{ currentStreak }}</span> (Max: {{ maxStreak }})</p>
     </div>
 
 
@@ -23,7 +23,7 @@
         v-else-if="currentPet && currentPet.photo_url_small" 
         :src="currentPet.photo_url_small" 
         :alt="hasGuessed ? currentPet.name : 'Mystery pet'" 
-        class="w-full h-64 object-cover rounded-lg"
+        class="w-full h-64 object-contain rounded-lg"
       >
       <!-- Placeholder if no image -->
       <div v-else class="flex justify-center items-center h-64 bg-gray-200 rounded-lg">
@@ -31,20 +31,37 @@
       </div>
     </div>
 
-    <!-- Feedback Message -->
+    <!-- Feedback Message Overlay (Correct/Incorrect/Skipped) -->
     <div 
-        v-if="feedback" 
-        :class="['absolute inset-0 flex items-center justify-center p-4 text-center font-semibold text-white bg-black bg-opacity-60 rounded-lg', feedbackClass]"
-      >
+      v-if="feedback" 
+      :class="[
+        'absolute inset-0 flex items-center justify-center p-4 text-center font-bold bg-black bg-opacity-10 rounded-lg pointer-events-none', 
+        feedbackClass, 
+        { 'text-4xl': guessResult !== 'skipped', 'text-xl': guessResult === 'skipped' } // Larger text for Correct/Wrong
+      ]"
+    >
       {{ feedback }}
     </div>
 
     <!-- Pet information (shown after guessing) -->
     <div v-if="hasGuessed && currentPet" class="mb-6 p-4 bg-gray-100 rounded-lg">
-      <h3 class="font-bold text-lg mb-2">{{ currentPet.name }}</h3>
-      <p><span class="font-semibold">Type:</span> {{ currentPet.type }}</p>
-      <p v-if="currentPet.primary_breed"><span class="font-semibold">Breed:</span> {{ currentPet.primary_breed }}</p>
-      <p><span class="font-semibold">Age:</span> {{ currentPet.age }}</p>
+      <h3 
+        :class="[
+          'font-bold text-lg mb-2', 
+          { 'text-green-500': guessResult === 'correct', 'text-red-500': guessResult === 'incorrect' }
+        ]"
+      >
+        {{ currentPet.name }}
+      </h3>
+      <!-- Updated Link Display -->
+      <p>
+        <span class="font-semibold text-sm">Link: </span> 
+        <a :href="currentPet.url" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline break-all">
+          {{ shortenedPetUrl }}
+        </a>
+      </p>
+      <!-- <p v-if="currentPet.primary_breed"><span class="font-semibold text-sm">Breed:</span> {{ currentPet.primary_breed }}</p> -->
+      <!-- <p><span class="font-semibold text-sm">Age:</span> {{ currentPet.age }}</p> -->
       <p v-if="currentPet.description" class="mt-2 text-sm">
         {{ truncateDescription(currentPet.description) }}
       </p>
@@ -98,6 +115,28 @@ export default {
       }
     };
   },
+  computed: {
+    shortenedPetUrl() {
+      if (!this.currentPet || !this.currentPet.url) {
+        return '';
+      }
+      try {
+        const url = new URL(this.currentPet.url);
+        // Remove 'www.' if present
+        let hostname = url.hostname.replace(/^www\./, '');
+        // Combine hostname and pathname, truncate if too long
+        let displayUrl = hostname + (url.pathname === '/' ? '' : url.pathname);
+        const maxLength = 30; // Adjust max length as needed
+        if (displayUrl.length > maxLength) {
+          displayUrl = displayUrl.substring(0, maxLength) + '...';
+        }
+        return displayUrl;
+      } catch (e) {
+        // Fallback for invalid URLs
+        return this.currentPet.url.substring(0, 30) + (this.currentPet.url.length > 30 ? '...' : '');
+      }
+    }
+  },
   mounted() {
     this.fetchGameBoards();
   },
@@ -140,6 +179,7 @@ export default {
       this.loading = true;
       this.hasGuessed = false;
       this.feedback = '';
+      this.guessResult = null; // Reset guess result for the new pet
       
       // Check if we have a current game board
       const currentBoard = this.gameBoards[this.currentBoardIndex];
@@ -150,9 +190,6 @@ export default {
 
       // Get the current pet from the game_board array
       const pet = currentBoard.game_board[this.currentPetIndex];
-
-      console.log("Current pet index:", this.currentPetIndex);
-      console.log("Current pet object:", pet);
 
       if (!pet) {
         // Move to next board or fetch new boards if at the end
@@ -213,18 +250,22 @@ export default {
     },
     
     getAllPetNames() {
-      // Collect all pet names from all game boards
-      const names = [];
+      // Collect and clean all pet names from all game boards
+      const names = new Set(); // Use a Set to avoid duplicates initially
       this.gameBoards.forEach(board => {
         if (board.game_board) {
           board.game_board.forEach(pet => {
-            if (pet && pet.name && (!this.currentPet || pet.name !== this.currentPet.name)) {
-              names.push(pet.name);
+            if (pet && pet.name) {
+              const cleanedName = this.cleanPetName(pet.name);
+              // Add only if it's a valid name and not the current pet's cleaned name
+              if (cleanedName && (!this.currentPet || cleanedName !== this.currentPet.name)) {
+                 names.add(cleanedName);
+              }
             }
           });
         }
       });
-      return names;
+      return Array.from(names); // Convert Set back to Array
     },
 
     cleanPetName(name) {
@@ -269,33 +310,31 @@ export default {
       if (!this.currentPet) return;
       this.hasGuessed = true;
 
-      // Compare with the cleaned name
       if (name === this.currentPet.name) {
-        this.feedback = `Correct! ${this.currentPet.name}`;
-        this.feedbackClass = 'text-green-600';
+        this.feedback = 'Correct!'; // Set overlay text
+        this.feedbackClass = 'text-green-500'; // Set overlay color class
+        this.guessResult = 'correct'; // Set state for name color in info box
         this.score += 1;
         this.currentStreak++;
         if (this.currentStreak > this.maxStreak) {
           this.maxStreak = this.currentStreak;
         }
       } else {
-        this.feedback = `Incorrect! The is ${this.currentPet.name}`;
-        this.feedbackClass = 'text-red-600';
+        this.feedback = 'WRONG!'; // Set overlay text
+        this.feedbackClass = 'text-red-500'; // Set overlay color class
+        this.guessResult = 'incorrect'; // Set state for name color in info box
         this.currentStreak = 0;
       }
     },
     
     nextPet() {
-      // If skipping (hasGuessed is false), reset the streak
-      if (!this.hasGuessed) {
+      if (!this.hasGuessed) { // Handle skip
         this.currentStreak = 0;
-        this.feedback = `Skipped! ${this.currentPet?.name || 'unknown'}.`;
-        this.feedbackClass = 'text-orange-600';
-      } else {
-         // Clear feedback for the next round only if they guessed
-         this.feedback = '';
-         this.feedbackClass = '';
-      }
+        this.feedback = `Skipped! The name was ${this.currentPet?.name || 'unknown'}.`; 
+        this.feedbackClass = 'text-orange-500'; 
+        this.guessResult = 'skipped'; 
+      } 
+      // No need for an else block, loadCurrentPet clears feedback for the next round
 
       this.currentPetIndex++;
 
@@ -318,11 +357,13 @@ export default {
         }
       }
 
-      this.loadCurrentPet();
+      this.loadCurrentPet(); // This will load the next pet and clear feedback
     },
     
     applyFilters() {
       this.score = 0; // Reset score when applying new filters
+      this.currentStreak = 0; // Reset streak too
+      this.maxStreak = 0;
       this.fetchGameBoards();
     },
     
@@ -338,4 +379,8 @@ export default {
 .pet-game-container {
   transition: all 0.3s ease;
 }
+/* Ensure feedback text color classes override others if needed */
+.text-green-500 { color: #16a34a !important; } /* Example green */
+.text-red-500 { color: #dc2626 !important; } /* Example red */
+.text-orange-500 { color: #ea580c !important; } /* Example orange */
 </style>

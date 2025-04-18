@@ -4,6 +4,7 @@ import numpy as np
 import random
 import json
 import re
+import html
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta  # Handles month calculations
@@ -81,29 +82,128 @@ def flatten_pet_data(pet):
     return flattened
 
 
-def clean_pet_name(name: str) -> str:
+# --- Enhanced Name Cleaning Function ---
+def clean_pet_name(name: Optional[str]) -> Optional[str]:
     """
-    Clean and standardize pet name values.
+    Clean and standardize pet name values, removing common extra info.
 
     Args:
         name (str): The raw pet name to be cleaned
 
     Returns:
-        str: A cleaned version of the name
+        str: A cleaned version of the name, or None if it's invalid/empty after cleaning.
     """
-    if pd.isna(name):
+    if pd.isna(name) or not isinstance(name, str) or not name.strip():
         return None
 
-    # Remove special characters and punctuation
-    cleaned_name = re.sub(r'[^\w\s-]', '', name)
+    # 1. Decode HTML entities like &amp;
+    cleaned = html.unescape(name)
 
-    # Convert to title case for consistency
-    cleaned_name = cleaned_name.title()
+    # 2. Remove common prefixes/suffixes (case-insensitive)
+    # Order matters: More specific patterns first
+    prefixes_suffixes = [
+        # --- Prefixes ---
+        r'^\?*\s*Meet\s+', # "? Meet "
+        # Updated to include POST
+        r'^\*+\s*COURTESY (?:LISTING|POST)\*+\s*', # "***COURTESY LISTING/POST*** ", etc.
+        r'^z\s*West Coast Paws\s*', # "z West Coast Paws "
+        r'^\d+[\s-]*', # Leading numbers/IDs like "34944- " or "35638 -"
 
-    # Remove any leading/trailing whitespace
-    cleaned_name = cleaned_name.strip()
+        # --- Suffixes (more specific first) ---
+        # Patterns with hyphens, em/en dashes (–), or commas indicating extra info
+        r'\s*[–-]\s*\d+\s+Years?\s+Old.*$', # " – 4 Years Old..." (using [–-] for en/em dash or hyphen)
+        r'\s*[–-]\s*In\s+Foster\s+Care.*$', # " – In Foster Care"
+        r'\s*[–-]\s*\$?\d+\s*(?:SHY CAT SPECIAL|fee)\b.*$', # Trailing fee/special info after dash
+        r'\s*[–-]\s*Courtesy Listing(?: see info)?\.?$', # Trailing courtesy listing info
+        r'\s*[–-]\s*Medical Needs$',
+        r'\s*[–-]\s*Submit Application to meet$',
+        r'\s*[–-]\s*Meeting Details in Bio$',
+        r'\s*[–-]\s*local .* adoption required.*$',
+        r'\s*[–-]\s*Tripod$',
+        r'\s*[–-]\s*1 eyed$',
+        r'\s*[–-]\s*Your .* Buddy!?$', # " – Your Perfect Adventure Buddy!"
+        r'\s*[–-]\s*The .* Queen!?$', # " – The Stunning, Spirited Snow Queen!"
+        r'\s*[–-]\s*A Resilient, Loving Companion!?$', # " – A Resilient, Loving Companion!"
+        r'\s*[–-]\s*Bosley\'s on .*$', # Location info
+        r'\s*[–-]\s*Vedder Road .*$', # Location info
 
-    return cleaned_name if cleaned_name else None
+        # Patterns with commas
+        r'\s*,\s*(?:GSD|mix|mellow|special needs|read bio)\b.*$', # Trailing breed/desc/needs after comma
+        r'\s*,\s*\$\d+\s+fee\b.*$', # Trailing fee after comma
+
+        # Patterns with asterisks or specific phrases
+        r'\s+\*(?:read|see|check)\b.*$', # Handles " *read bio", " *see description" etc.
+        r'\*+\s*READ ENTIRE DESCRIPTION\s*\*+$', # Trailing "READ..."
+        r'\*+\s*SPECIAL NEEDS\s*\*+$', # Trailing "SPECIAL NEEDS..."
+        r'\*+\s*WAITING FOR A FAMILY.*\s*\*+$', # Trailing "WAITING..."
+        r'\*+\s*(?:read\s+bio)\s*\*+', # Phrases within asterisks
+
+        # All caps suffixes (like Marvin NOW AT...)
+        r'\s+([A-Z]{2,}\s*)+$', # General trailing all caps words
+
+        # Location/Misc patterns
+        r'\s*in British Columbia$',
+        r'\s*\(?EDMONTON, AB\)?$',
+        r'\s*\(?CALGARY, AB\)?$',
+        r'\s*\(?Vancouver, BC\)?$',
+        r'\s*\(?KELOWNA, BC\)?$',
+        r'\s*\(?WA\)?$', # State abbreviations
+        r'\s*\(?ID\)?$', # State abbreviations
+        r'\s*\(?Armstrong\)?$', # Location
+        r'\s*\(?ie: no cost\)?$', # Trailing "(ie: no cost)"
+        r'\s*~\s*Crosspost for.*$',
+        r'\s*\|\s*Sweet\s*\|\s*Shy\s*\|\s*Gentle$',
+        r'\s+\d{3}-\d{3}-\d{4}$', # Trailing phone numbers like Knox
+        r'\s*Generic (?:Medium|Large) Dog.*$',
+        r'\s*7910-\d{2}$', # Specific patterns like Australian Log Runner
+        r'\s*pending home$',
+
+        # General cleanup patterns (less specific)
+        r'\s*\.\.\.$', # Trailing ellipsis
+        r'\?{2,}$', # Trailing multiple question marks
+        r'\*{1,}$', # Trailing asterisks (after specific *phrases* are removed)
+        r'\.{1,}$' # Trailing periods
+    ]
+    for pattern in prefixes_suffixes:
+        # Apply each pattern sequentially
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE).strip()
+
+    # 3. Remove content within parentheses and brackets (non-greedy)
+    cleaned = re.sub(r'\(.*?\)', '', cleaned).strip()
+    cleaned = re.sub(r'\[.*?\]', '', cleaned).strip()
+
+    # 4. Split by common separators and take the first part (if not already handled by suffixes)
+    # Include em/en dash –
+    separators = [' – ', ' - ', ':', '~', '|', '\\', '/']
+    for sep in separators:
+        if sep in cleaned:
+            parts = cleaned.split(sep, 1)
+            if len(parts[0]) > 1 and not parts[0].lower() in ['a', 'the', 'pet']:
+                 cleaned = parts[0].strip()
+
+    # 5. Handle quotes (remove them)
+    cleaned = re.sub(r'\"(.*?)\"', r'\1', cleaned)
+    cleaned = re.sub(r'\`(.*?)\`', r'\1', cleaned)
+    cleaned = cleaned.replace('"', '')
+    # Remove remaining asterisks after specific patterns are handled
+    cleaned = cleaned.replace('*', '').strip()
+
+    # 6. Remove leading/trailing non-alphanumeric chars (allow internal hyphens/spaces)
+    cleaned = re.sub(r'^[^a-zA-Z0-9]+', '', cleaned)
+    cleaned = re.sub(r'[^a-zA-Z0-9\s\-]+$', '', cleaned) # Allow space/hyphen at end temporarily
+
+    # 7. Final trim and check if the result is purely numeric or empty
+    cleaned = cleaned.strip()
+    if cleaned.isdigit() or not cleaned:
+        return None
+
+    # 8. Final whitespace cleanup
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+
+    # 9. Optional: Title Case
+    # cleaned = cleaned.title()
+
+    return cleaned if cleaned else None
 
 
 async def get_access_token():
@@ -504,6 +604,47 @@ async def get_parquet_merged_data(
         raise
     except Exception as e:
         logger.exception("Failed to read parquet file 'merged_pet_data.parquet'")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal Server Error: {str(e)}"
+        )
+
+
+# --- Endpoint to get unique pet names from merged data
+@router.get("/pets/merged_data/unique_names", response_model=List[str])
+async def get_unique_pet_names(
+    storage_client: AzureDataStorageClient = Depends(get_storage)
+):
+    """
+    Retrieve a list of unique pet names from the merged Parquet file.
+    """
+    logger.info("Received GET request | get_unique_pet_names")
+    try:
+        full_file_path = "merged_data/merged_pet_data.parquet"
+        # Read the Parquet file from storage
+        df = await storage_client.read_parquet_data(file_name=full_file_path)
+
+        if df is None or df.empty:
+            logger.warning("File 'merged_pet_data.parquet' not found or empty.")
+            raise HTTPException(status_code=404, detail="File 'merged_pet_data.parquet' not found or empty")
+
+        if "name" not in df.columns:
+            logger.error("Column 'name' not found in the DataFrame.")
+            raise HTTPException(status_code=500, detail="Internal Server Error: 'name' column missing")
+
+        # Apply the cleaning function to the 'name' column
+        cleaned_names = df["name"].apply(clean_pet_name).dropna().unique().tolist()
+
+        # Filter out any potential None values that might have slipped through (though dropna should handle it)
+        unique_cleaned_names = [name for name in cleaned_names if name]
+
+        logger.info(f"Found {len(unique_cleaned_names)} unique cleaned pet names.")
+        return unique_cleaned_names
+
+    except HTTPException:
+        raise # Re-raise HTTPException to let FastAPI handle it
+    except Exception as e:
+        logger.exception("Failed to get unique pet names from 'merged_pet_data.parquet'")
         raise HTTPException(
             status_code=500,
             detail=f"Internal Server Error: {str(e)}"
