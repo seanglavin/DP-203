@@ -727,22 +727,16 @@ async def create_set_of_game_boards(storage_client: AzureDataStorageClient = Dep
 # --- Read file by name in game_boards.parquet
 @router.get("/pets/game_boards", response_model=ParquetReadDataResponse)
 async def get_parquet_game_boards(
-    pet_type: str = None,
-    age: int = None,
-    gender: str = None,
-    size: str = None,
-    # name: str = None,
-    # num_samples: int = 5,
+    # Remove unused filter parameters if not needed for this endpoint
+    # pet_type: str = None,
+    # age: int = None,
+    # gender: str = None,
+    # size: str = None,
     storage_client: AzureDataStorageClient = Depends(get_storage),
 ):
     """
-    Read and return contents of a specific Parquet file with optional filtering.
-    - `num_samples`: Number of sample records to return (default: 5)
-    - `pet_type`: Filter by pet type
-    - `age`: Filter by age
-    - `gender`: Filter by gender
-    - `size`: Filter by size
-    - `name`: Filter by name
+    Read the game boards parquet file, clean pet names within each board,
+    and return the data.
     """
     try:
         full_file_path = "game_boards.parquet"
@@ -752,44 +746,53 @@ async def get_parquet_game_boards(
         if df is None or df.empty:
             raise HTTPException(status_code=404, detail="File 'game_boards.parquet' not found or empty")
 
-        # Apply filters
-        filtered_df = df
-        if pet_type:
-            filtered_df = filtered_df[filtered_df["type"] == pet_type]
-        if age is not None:
-            filtered_df = filtered_df[filtered_df["age"] == age]
-        if gender:
-            filtered_df = filtered_df[filtered_df["gender"] == gender]
-        if size:
-            filtered_df = filtered_df[filtered_df["size"] == size]
-        # if name:
-        #     # Clean the input name
-        #     cleaned_name = clean_pet_name(name)
+        # --- Clean names within the game_board column ---
+        if 'game_board' in df.columns:
+            def clean_names_in_board(board):
+                if isinstance(board, (list, np.ndarray)): # Check if it's list-like
+                    cleaned_board = []
+                    for pet in board:
+                        if isinstance(pet, dict) and 'name' in pet:
+                            # Create a copy to avoid modifying original dict if needed elsewhere
+                            cleaned_pet = pet.copy()
+                            cleaned_pet['name'] = clean_pet_name(pet['name'])
+                            # Only add pets that still have a valid name after cleaning
+                            if cleaned_pet['name']:
+                                cleaned_board.append(cleaned_pet)
+                        else:
+                            # Keep non-dict items or dicts without 'name' as is? Or filter?
+                            # Let's filter them out for the game context
+                            pass
+                    return cleaned_board
+                return board # Return as is if not a list/ndarray
 
-        #     if cleaned_name:
-        #         filtered_df = filtered_df[filtered_df["name"].str.contains(cleaned_name, na=False)]
-        
-        # Clean names in the resulting DataFrame
-        # filtered_df["cleaned_name"] = filtered_df.apply(lambda row: clean_pet_name(row["name"]), axis=1)
+            # Apply the cleaning function to each element in the 'game_board' column
+            df['game_board'] = df['game_board'].apply(clean_names_in_board)
 
-        # Convert numpy.ndarray to list for JSON serialization
-        for col in filtered_df.select_dtypes([np.ndarray]).columns:
-            filtered_df[col] = filtered_df[col].apply(list)
+            # Optional: Filter out boards that became empty after cleaning invalid names
+            df = df[df['game_board'].apply(lambda x: isinstance(x, list) and len(x) > 0)]
+
+            if df.empty:
+                 raise HTTPException(status_code=404, detail="No valid game boards found after cleaning names.")
+
+
+        # Convert numpy.ndarray to list for JSON serialization (might be redundant now)
+        for col in df.select_dtypes([np.ndarray]).columns:
+             df[col] = df[col].apply(list)
 
         # Convert DataFrame to list of dictionaries for JSON serialization
-        data = filtered_df.to_dict('records')
+        data = df.to_dict('records')
 
         return {
             "success": True,
             "count": len(data),
-            # "sample_data": data[:num_samples],  # Show first 5 records as sample
             "data": data
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Failed to read parquet file 'game_boards.parquet'")
+        logger.exception("Failed to read or process parquet file 'game_boards.parquet'")
         raise HTTPException(
             status_code=500,
             detail=f"Internal Server Error: {str(e)}"
