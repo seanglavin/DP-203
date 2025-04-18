@@ -1,11 +1,21 @@
 <template>
-  <div class="pet-game-container p-6 max-w-lg mx-auto bg-[var(--secondary-light)] rounded-xl shadow-md">
-    <h2 class="text-2xl font-bold text-center mb-4">Petfinder Name Game</h2>
+  <div class="pet-game-container p-6 max-w-lg mx-auto bg-[var(--secondary-light)] rounded-xl shadow-md overflow-hidden">
+    <h2 class="text-2xl font-bold text-center text-[var(--primary-light)] bg-[var(--primary-purple)] py-3 px-4 -mx-6 -mt-6 mb-6">
+      Petfinder Guess The Name!
+    </h2>
 
     <!-- Score and Streak Display -->
-    <div class="text-center mb-4">
-      <p class="text-lg">Score: <span class="font-bold">{{ score }}</span></p>
-      <p class="text-sm">Streak: <span class="font-bold">{{ currentStreak }}</span> (Max: {{ maxStreak }})</p>
+    <div class="flex justify-between items-center mb-6 px-2">
+      <div>
+        <span class="text-3xl uppercase text-[var(--primary-purple)] font-mono">Score</span>
+        <p class="text-4xl font-bold text-red-500 font-mono tracking-wider">{{ score }}</p>
+      </div>
+      <div class="text-right">
+        <span class="text-3xl uppercase text-[var(--primary-purple)] font-mono">Streak</span>
+        <p class="text-4xl font-bold text-orange-500 font-mono tracking-wider">
+          {{ currentStreak }} <span class="text-lg">(Max: {{ maxStreak }})</span>
+        </p>
+      </div>
     </div>
 
 
@@ -35,9 +45,9 @@
     <div 
       v-if="feedback" 
       :class="[
-        'absolute inset-0 flex items-center justify-center p-4 text-center font-bold bg-black bg-opacity-10 rounded-lg pointer-events-none', 
+        'absolute inset-0 flex items-center justify-center p-4 text-center font-bold bg-black bg-opacity-0 rounded-lg pointer-events-none', 
         feedbackClass, 
-        { 'text-4xl': guessResult !== 'skipped', 'text-xl': guessResult === 'skipped' } // Larger text for Correct/Wrong
+        { 'text-6xl': guessResult !== 'skipped', 'text-xl': guessResult === 'skipped' } // Larger text for Correct/Wrong
       ]"
     >
       {{ feedback }}
@@ -47,7 +57,7 @@
     <div v-if="hasGuessed && currentPet" class="mb-6 p-4 bg-gray-100 rounded-lg">
       <h3 
         :class="[
-          'font-bold text-lg mb-2', 
+          'font-bold text-3xl mb-2', 
           { 'text-green-500': guessResult === 'correct', 'text-red-500': guessResult === 'incorrect' }
         ]"
       >
@@ -55,7 +65,7 @@
       </h3>
       <!-- Updated Link Display -->
       <p>
-        <span class="font-semibold text-sm">Link: </span> 
+        <span class="font-semibold text-lg">Check me out: </span> 
         <a :href="currentPet.url" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:underline break-all">
           {{ shortenedPetUrl }}
         </a>
@@ -67,8 +77,8 @@
       </p>
     </div>
 
-    <!-- Name options -->
-    <div class="grid grid-cols-2 gap-4 mb-6">
+    <!-- Name options (shown BEFORE guessing) -->
+    <div v-if="!hasGuessed" class="grid grid-cols-2 gap-4 mb-6">
       <button
         v-for="(name, index) in nameOptions"
         :key="index"
@@ -80,15 +90,16 @@
       </button>
     </div>
 
-    <!-- Next/Restart button -->
-    <div class="text-center">
+    <!-- Next/Restart button (shown AFTER guessing) -->
+    <div v-else class="text-center mb-6">
       <button
         @click="nextPet"
-        class="py-2 px-8 bg-green-500 text-white rounded hover:bg-green-600 transition"
+        class="py-2 px-8 bg-green-500 text-white rounded hover:bg-green-600 transition w-full"
       >
-        {{ hasGuessed ? 'Next Pet' : 'Skip This Pet' }}
+        Next Pet
       </button>
     </div>
+
   </div>
 </template>
 
@@ -328,13 +339,13 @@ export default {
     },
     
     nextPet() {
-      if (!this.hasGuessed) { // Handle skip
-        this.currentStreak = 0;
-        this.feedback = `Skipped! The name was ${this.currentPet?.name || 'unknown'}.`; 
-        this.feedbackClass = 'text-orange-500'; 
-        this.guessResult = 'skipped'; 
-      } 
-      // No need for an else block, loadCurrentPet clears feedback for the next round
+      // Clear feedback immediately when moving to the next pet
+      this.feedback = '';
+      this.feedbackClass = '';
+      this.guessResult = null;
+
+      // If the user skipped, reset the streak (handled implicitly by loadCurrentPet resetting hasGuessed)
+      // No need for the explicit skip handling here anymore as loadCurrentPet resets state
 
       this.currentPetIndex++;
 
