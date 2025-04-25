@@ -9,7 +9,10 @@ from pydantic import BaseModel
 
 # Set up logger
 logger = logging.getLogger("app")
-logging.basicConfig(level=logging.INFO)
+logger.setLevel(logging.INFO)
+
+# Silence verbose Azure SDK logging
+logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
 
 formatter = logging.Formatter(
     '[%(levelname)s] [%(asctime)s] | %(name)s.%(module)s.%(funcName)s - %(message)s'

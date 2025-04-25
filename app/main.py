@@ -8,7 +8,7 @@ from datetime import datetime
 from app.models.azure_storage_models import ConnectionTestResponse, StorageConnectionDetails
 from app.services.azure_storage_client import AzureDataStorageClient
 from app.config_settings import settings
-from app.endpoints import azure_storage_endpoints, petfinder_api_endpoints, source_data_endpoints
+from app.endpoints import azure_storage_endpoints, petfinder_api_endpoints, source_data_endpoints, magic_api_endpoints
 from logger_config import logger
 
 
@@ -36,6 +36,7 @@ app.add_middleware(
 app.include_router(source_data_endpoints.router, prefix="/api/source", tags=["source"])
 app.include_router(azure_storage_endpoints.router, prefix="/storage", tags=["storage"])
 app.include_router(petfinder_api_endpoints.router, prefix="/api/petfinder", tags=["petfinder"])
+app.include_router(magic_api_endpoints.router, prefix="/api/mtg", tags=["mtg"])
 
 @app.get("/")
 async def root():

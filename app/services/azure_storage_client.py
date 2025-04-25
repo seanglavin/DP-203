@@ -1,8 +1,9 @@
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 import io
 from datetime import datetime
 import pandas as pd
 from azure.storage.blob import BlobServiceClient, ContainerClient, BlobClient
+from azure.core.exceptions import ResourceNotFoundError
 from app.config_settings import settings
 from logger_config import logger
 import json
@@ -29,6 +30,17 @@ def get_petfinder_storage_client():
     return AzureDataStorageClient(
         connection_string=settings.AZURE_STORAGE_CONNECTION_STRING,
         container_name="petfinder"
+    )
+
+def get_mtg_storage_client():
+    """
+    Factory function that returns storage client
+
+    """
+    # Return client
+    return AzureDataStorageClient(
+        connection_string=settings.AZURE_STORAGE_CONNECTION_STRING,
+        container_name="mtg"
     )
 
 
@@ -100,43 +112,121 @@ class AzureDataStorageClient:
             logger.error(f"Error ensuring container exists: {str(e)}")
             return False
 
-    async def list_files(self, prefix: Optional[str] = None, max_results: int = 100) -> List[Dict[str, Any]]:
+    async def list_files(self, prefix: Optional[str] = None) -> List[str]:
         """
-        List files in the container
-        
+        List all file names in the container matching the prefix.
+
         Args:
             prefix: Optional filename prefix filter
-            max_results: Maximum number of results to return
-            
+
         Returns:
-            List of file metadata dictionaries
+            List of blob names (strings).
+        """
+        blob_names = []
+        try:
+            # Ensure container exists
+            await self.ensure_container_exists()
+
+            logger.debug(f"Listing all blobs with prefix: '{prefix}' in container '{self.container_name}'")
+            # Iterate through the ItemPaged iterator to get all blobs
+            blob_list = self.container_client.list_blobs(name_starts_with=prefix)
+            blob_names = [blob.name for blob in blob_list] # Extract just the name
+
+            logger.info(f"Found {len(blob_names)} blobs matching prefix '{prefix}'.")
+            return blob_names
+
+        except ResourceNotFoundError:
+            logger.error(f"Container '{self.container_name}' not found.")
+            return [] # Return empty list if container not found
+        except Exception as e:
+            logger.exception(f"Error listing files in container with prefix '{prefix}': {e}")
+            # Depending on desired behavior, you might re-raise or return empty
+            return [] # Return empty list on other errors
+
+
+    # --- 3 in 1 upload method for csv, parquet, or json
+    async def upload_data(self, data: Any, file_name: str, file_type: str) -> bool:
+        """
+        Upload data to Azure Storage based on the file type.
+
+        Args:
+            data: Data to store (Pandas DataFrame for CSV/Parquet, or any Python object for JSON)
+            file_name: Path in Azure Blob Storage
+            file_type: Type of file ('csv', 'parquet', 'json')
+
+        Returns:
+            True if successful, False otherwise.
         """
         try:
             # Ensure container exists
             await self.ensure_container_exists()
-            
-            # List blobs with optional prefix and max results
-            blobs = self.container_client.list_blobs(
-                name_starts_with=prefix, 
-                maxresults=max_results
-            )
-            
-            # Convert blob properties to list of dictionaries
-            file_list = [
-                {
-                    "name": blob.name,
-                    "size": blob.size,
-                    "last_modified": blob.last_modified
-                } 
-                for blob in blobs
-            ]
-            
-            return file_list
-    
+
+            # Perform upload based on file type
+            if file_type == 'csv':
+                buffer = io.StringIO()
+                data.to_csv(buffer, index=False)
+                blob_client = self.get_blob_client(file_name)
+                blob_client.upload_blob(buffer.getvalue(), overwrite=True)
+            elif file_type == 'parquet':
+                parquet_buffer = io.BytesIO()
+                data.to_parquet(parquet_buffer, index=False, engine="pyarrow", compression="snappy")
+                parquet_buffer.seek(0)
+                blob_client = self.get_blob_client(file_name)
+                blob_client.upload_blob(parquet_buffer.getvalue(), overwrite=True)
+            elif file_type == 'json':
+                json_string = json.dumps(data, indent=2, default=str)
+                json_bytes = json_string.encode('utf-8')
+                blob_client = self.get_blob_client(file_name)
+                blob_client.upload_blob(json_bytes, overwrite=True)
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+
+            return True
+
         except Exception as e:
-            logger.error(f"Error listing files in container: {str(e)}")
+            logger.error(f"Error uploading {file_type.capitalize()} data: {str(e)}")
             raise
 
+
+    # --- 3 in 1 read method for csv, parquet, or json
+    async def read_data(self, file_name: str, file_type: str) -> Optional[Union[pd.DataFrame, Any]]:
+        """
+        Read data from Azure Storage based on the file type.
+
+        Args:
+            file_name: Path to the file in Azure Blob Storage
+            file_type: Type of file ('csv', 'parquet', 'json')
+
+        Returns:
+            Pandas DataFrame for CSV/Parquet, or Python object (list/dict) for JSON, or None if file doesn't exist.
+        """
+        try:
+            # Ensure container exists
+            await self.ensure_container_exists()
+
+            # Perform read based on file type
+            blob_client = self.get_blob_client(file_name)
+            if file_type == 'csv':
+                blob_data = blob_client.download_blob().readall()
+                buffer = io.StringIO(blob_data.decode('utf-8'))
+                return pd.read_csv(buffer)
+            elif file_type == 'parquet':
+                blob_data = blob_client.download_blob().readall()
+                buffer = io.BytesIO(blob_data)
+                return pd.read_parquet(buffer, engine="pyarrow")
+            elif file_type == 'json':
+                blob_data = blob_client.download_blob().readall()
+                return json.loads(blob_data.decode('utf-8'))
+            else:
+                raise ValueError(f"Unsupported file type: {file_type}")
+
+        except ResourceNotFoundError:
+            logger.warning(f"{file_type.capitalize()} file {file_name} not found.")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error reading {file_type.capitalize()} data from {file_name}: {str(e)}")
+            raise
 
 # ---
 
@@ -199,33 +289,93 @@ class AzureDataStorageClient:
             raise
 
 
-    async def upload_data_as_json(self, data: pd.DataFrame, file_name: str) -> bool:
+    async def upload_json_data(self, data: Any, file_name: str) -> bool:
         """
-        Upload NBA team info data in specified format to Azure Storage.
+        Upload Python data (list, dict) as a JSON file to Azure Storage.
 
         Args:
-            data: List of team info dictionaries
+            data: The Python object (list or dict) to store.
+            file_name: Path in Azure Blob Storage (should end with .json).
 
         Returns:
-            True if successful, False otherwise
+            True if successful, False otherwise.
         """
+        if not file_name.endswith(".json"):
+             logger.warning(f"File name '{file_name}' does not end with .json. Proceeding, but convention is recommended.")
         try:
             # Ensure container exists
             await self.ensure_container_exists()
 
-            data_dict = data.to_dict(index=False)
-            json_data = json.dumps(data_dict)
-            blob_name = file_name
+            # Convert Python object to JSON string
+            # Use default=str to handle potential non-serializable types like datetime
+            json_string = json.dumps(data, indent=2, default=str)
+            json_bytes = json_string.encode('utf-8')
 
             # Upload to storage
-            blob_client = self.get_blob_client(blob_name)
-            blob_client.upload_blob(json_data, overwrite=True)
-
+            blob_client = self.get_blob_client(file_name)
+            logger.info(f"Uploading JSON data to {file_name}...")
+            # Consider adding timeout like in parquet upload if files can be large
+            upload_timeout_seconds = 300
+            blob_client.upload_blob(
+                json_bytes,
+                overwrite=True,
+                timeout=upload_timeout_seconds
+            )
+            logger.info(f"Successfully uploaded JSON data to {file_name}")
             return True
 
+        except TypeError as te:
+             logger.error(f"JSON Serialization Error for {file_name}: {te}. Check data types.")
+             raise
         except Exception as e:
-            logger.error(f"Error uploading team info data: {str(e)}")
+            logger.error(f"Error uploading JSON data to {file_name}: {str(e)}")
             raise
+
+
+    async def read_json_data(self, file_name: str) -> Optional[Any]:
+        """
+        Read a JSON file from Azure Storage into a Python object.
+
+        Args:
+            file_name: Path to the JSON file in Azure Blob Storage.
+
+        Returns:
+            Python object (list or dict) containing the data, or None if the file doesn't exist or is invalid JSON.
+        """
+        if not file_name.endswith(".json"):
+             logger.warning(f"Attempting to read non-JSON file extension as JSON: '{file_name}'")
+        try:
+            # Ensure container exists (optional, depends if you expect it)
+            # await self.ensure_container_exists()
+
+            # Get blob client
+            blob_client = self.get_blob_client(file_name)
+
+            # Check if blob exists
+            if not blob_client.exists():
+                logger.warning(f"JSON file {file_name} does not exist")
+                return None
+
+            # Download blob content
+            logger.debug(f"Downloading JSON data from {file_name}...")
+            blob_data = blob_client.download_blob().readall()
+            logger.debug(f"Downloaded {len(blob_data)} bytes from {file_name}.")
+
+            # Decode and parse JSON
+            json_string = blob_data.decode('utf-8')
+            data = json.loads(json_string)
+            logger.info(f"Successfully read and parsed JSON data from {file_name}.")
+            return data
+
+        except json.JSONDecodeError as jde:
+             logger.error(f"Error decoding JSON from {file_name}: {jde}")
+             return None # Indicate failure to parse
+        except ResourceNotFoundError: # More specific catch if exists() check is removed
+             logger.warning(f"JSON file {file_name} not found (ResourceNotFoundError).")
+             return None
+        except Exception as e:
+            logger.error(f"Error reading JSON data from {file_name}: {str(e)}")
+            raise # Re-raise other unexpected errors
 
 
     async def read_parquet_data(self, file_name: str) -> pd.DataFrame:

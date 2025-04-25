@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../views/Home.vue'
 import PetNameGameView from '../views/games/PetNameGameView.vue'
+import MagicCardView from '../views/games/MagicCardView.vue'
 
 
 const routes = [
@@ -13,6 +14,11 @@ const routes = [
     path: '/games/pet-name-game',
     name: 'PetNameGame',
     component: PetNameGameView
+  },
+  {
+    path: '/games/magic-card',
+    name: 'MagicCard',
+    component: MagicCardView
   },
   // Add more game routes as needed
 ]

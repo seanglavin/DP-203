@@ -610,47 +610,6 @@ async def get_parquet_merged_data(
         )
 
 
-# --- Endpoint to get unique pet names from merged data
-@router.get("/pets/merged_data/unique_names", response_model=List[str])
-async def get_unique_pet_names(
-    storage_client: AzureDataStorageClient = Depends(get_storage)
-):
-    """
-    Retrieve a list of unique pet names from the merged Parquet file.
-    """
-    logger.info("Received GET request | get_unique_pet_names")
-    try:
-        full_file_path = "merged_data/merged_pet_data.parquet"
-        # Read the Parquet file from storage
-        df = await storage_client.read_parquet_data(file_name=full_file_path)
-
-        if df is None or df.empty:
-            logger.warning("File 'merged_pet_data.parquet' not found or empty.")
-            raise HTTPException(status_code=404, detail="File 'merged_pet_data.parquet' not found or empty")
-
-        if "name" not in df.columns:
-            logger.error("Column 'name' not found in the DataFrame.")
-            raise HTTPException(status_code=500, detail="Internal Server Error: 'name' column missing")
-
-        # Apply the cleaning function to the 'name' column
-        cleaned_names = df["name"].apply(clean_pet_name).dropna().unique().tolist()
-
-        # Filter out any potential None values that might have slipped through (though dropna should handle it)
-        unique_cleaned_names = [name for name in cleaned_names if name]
-
-        logger.info(f"Found {len(unique_cleaned_names)} unique cleaned pet names.")
-        return unique_cleaned_names
-
-    except HTTPException:
-        raise # Re-raise HTTPException to let FastAPI handle it
-    except Exception as e:
-        logger.exception("Failed to get unique pet names from 'merged_pet_data.parquet'")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal Server Error: {str(e)}"
-        )
-
-
 # --- get random set of pets from merged_pet_data
 @router.get("/pets/merged_data/random")
 async def get_random_pet_records(
