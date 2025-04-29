@@ -2,15 +2,15 @@
     <div>
       <MagicCard />
     </div>
-  </template>
+</template>
   
-  <script>
-  import MagicCard from '../../components/MagicCard.vue'
-  
-  export default {
-    name: 'MagicCardView',
-    components: {
-      MagicCard
-    }
+<script>
+import MagicCard from '../../components/MagicCard.vue'
+
+export default {
+  name: 'MagicCardView',
+  components: {
+    MagicCard
   }
-  </script>
+}
+</script>

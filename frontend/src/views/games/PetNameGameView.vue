@@ -10,15 +10,15 @@
         </router-link>
       </div> -->
     </div>
-  </template>
-  
-  <script>
-  import PetNameGame from '../../components/PetNameGame.vue'
-  
-  export default {
-    name: 'PetNameGameView',
-    components: {
-      PetNameGame
-    }
+</template>
+
+<script>
+import PetNameGame from '../../components/PetNameGame.vue'
+
+export default {
+  name: 'PetNameGameView',
+  components: {
+    PetNameGame
   }
-  </script>
+}
+</script>
