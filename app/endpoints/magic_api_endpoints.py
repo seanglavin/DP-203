@@ -1,12 +1,13 @@
 import httpx
 import asyncio
 import pandas as pd
-import time # Import time for sleep
+import time
 import math
 import json
 import numpy as np
 import random
-from urllib.error import URLError # Import URLError
+import re
+from urllib.error import URLError
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, List, Dict, Any
 
@@ -18,14 +19,24 @@ from logger_config import logger
 
 router = APIRouter()
 
-# Use dependency injection for the storage client
+# --- Configuration / Constants ---
+SCRYFALL_SETS_FILE_PATH = "scryfall/all_sets.json"
+MERGED_CORE_EXP_CARDS_PATH = "scryfall/cards/combined_all_core_expansion.json"
+DAILY_SUBSET_FILE = "scryfall/cards/daily1000.json"
+SUBSET_SIZE = 1000 # Number of cards to include in the daily subset
+MIN_PRICE_FOR_SUBSET = 0.1
+TARGET_SET_TYPES = ['core', 'expansion'] # Define target set types
+
+
+# storage client
 async def get_storage():
     """Dependency to get storage client"""
     return get_mtg_storage_client()
 
 
-
+#
 # -- Utils
+#
 
 def flatten_card_dict(card: Dict[str, Any], sep: str = '_') -> Dict[str, Any]:
     """
@@ -99,51 +110,74 @@ def convert_numpy_to_list(data: Any) -> Any:
         return data
     
 
-# --- Daily Random Subset Generation ---
-# --- Configuration ---
-SOURCE_MERGED_FILE = "scryfall/cards/merged_cards/combined_all_core_expansion.json"
-DAILY_SUBSET_FILE = "scryfall/cards/merged_cards/daily100.json"
-SUBSET_SIZE = 100 # Number of cards to include in the daily subset
-# --- End Configuration ---
-
 async def generate_daily_subset(storage_client: AzureDataStorageClient = Depends(get_storage)):
     """
-    Reads the main merged card file, selects a random subset,
-    and uploads it to a new file for daily use.
+    Reads the main merged card file, filters for cards with a price greater
+    than MIN_PRICE_FOR_SUBSET, selects a random subset, and uploads it
+    to DAILY_SUBSET_FILE.
     """
-    logger.info("Starting daily random card subset generation...")
+    logger.info(f"Starting daily random card subset generation (size: {SUBSET_SIZE}, min_price: ${MIN_PRICE_FOR_SUBSET:.2f})...")
 
     try:
         # 1. Read the main merged file
-        logger.info(f"Reading main merged file: {SOURCE_MERGED_FILE}")
-        all_cards_list = await storage_client.read_data(file_name=SOURCE_MERGED_FILE, file_type="json")
+        logger.info(f"Reading main merged file: {MERGED_CORE_EXP_CARDS_PATH}")
+        all_cards_list = await storage_client.read_data(file_name=MERGED_CORE_EXP_CARDS_PATH, file_type="json")
 
+        # ... (Error handling for reading file remains the same) ...
         if all_cards_list is None:
-            logger.error(f"Source merged file not found or invalid: {SOURCE_MERGED_FILE}. Cannot generate subset.")
-            return # Exit script
-
+            logger.error(f"Source merged file not found or invalid: {MERGED_CORE_EXP_CARDS_PATH}. Cannot generate subset.")
+            return
         if not isinstance(all_cards_list, list):
-             logger.error(f"Expected a list from {SOURCE_MERGED_FILE}, but got {type(all_cards_list)}. Cannot generate subset.")
-             return # Exit script
-
+             logger.error(f"Expected a list from {MERGED_CORE_EXP_CARDS_PATH}, but got {type(all_cards_list)}. Cannot generate subset.")
+             return
         if not all_cards_list:
-             logger.warning(f"Source merged file is empty: {SOURCE_MERGED_FILE}. Cannot generate subset.")
-             return # Exit script
+             logger.warning(f"Source merged file is empty: {MERGED_CORE_EXP_CARDS_PATH}. Cannot generate subset.")
+             return
 
-        total_cards = len(all_cards_list)
-        logger.info(f"Successfully read {total_cards} cards from {SOURCE_MERGED_FILE}.")
+        total_cards_read = len(all_cards_list)
+        logger.info(f"Successfully read {total_cards_read} cards from {MERGED_CORE_EXP_CARDS_PATH}.")
 
-        # 2. Select the random subset
-        actual_subset_size = min(SUBSET_SIZE, total_cards) # Don't try to sample more than available
-        logger.info(f"Selecting a random subset of {actual_subset_size} cards...")
+        # --- Add Filtering Step ---
+        logger.info(f"Filtering cards with price > ${MIN_PRICE_FOR_SUBSET:.2f}...")
+        priced_cards_list = []
+        for card in all_cards_list:
+            try:
+                # Safely access nested price
+                price_str = card.get('prices', {}).get('usd')
+                if price_str is not None:
+                    price_float = float(price_str)
+                    if price_float > MIN_PRICE_FOR_SUBSET:
+                        priced_cards_list.append(card)
+            except (ValueError, TypeError) as price_err:
+                # Log if price conversion fails for a card, but continue
+                card_id = card.get('id', 'N/A')
+                logger.warning(f"Could not parse price for card ID {card_id} (price: '{price_str}'): {price_err}")
+            except Exception as filter_err:
+                 card_id = card.get('id', 'N/A')
+                 logger.warning(f"Unexpected error filtering card ID {card_id}: {filter_err}")
 
-        if total_cards <= SUBSET_SIZE:
-            # If total cards is less than or equal to desired subset size, just use all cards
-            daily_subset = all_cards_list
-            logger.info("Total cards are less than or equal to subset size. Using all cards.")
+
+        total_priced_cards = len(priced_cards_list)
+        logger.info(f"Found {total_priced_cards} cards meeting the price filter criteria.")
+
+        if total_priced_cards == 0:
+            logger.warning(f"No cards found with price > ${MIN_PRICE_FOR_SUBSET:.2f}. Cannot generate subset.")
+            # Optionally: Upload an empty file or handle differently
+            # await storage_client.upload_json_data(data=[], file_name=DAILY_SUBSET_FILE)
+            return
+        # --- End Filtering Step ---
+
+        # 2. Select the random subset *from the filtered list*
+        actual_subset_size = min(SUBSET_SIZE, total_priced_cards) # Sample from available priced cards
+        logger.info(f"Selecting a random subset of {actual_subset_size} cards from the filtered list...")
+
+        if total_priced_cards <= SUBSET_SIZE:
+            # If total priced cards is less than or equal to desired subset size, use all priced cards
+            daily_subset = priced_cards_list
+            logger.info(f"Total priced cards ({total_priced_cards}) are less than or equal to subset size ({SUBSET_SIZE}). Using all priced cards.")
         else:
-            # Use random.sample for efficient random selection without replacement
-            daily_subset = random.sample(all_cards_list, actual_subset_size)
+            # Use random.sample on the filtered list
+            daily_subset = random.sample(priced_cards_list, actual_subset_size)
 
         logger.info(f"Selected {len(daily_subset)} cards for the daily subset.")
 
@@ -161,14 +195,19 @@ async def generate_daily_subset(storage_client: AzureDataStorageClient = Depends
 # --- Endpoints for Scryfall | Magic: The Gathering API ---
 
 
-SCRYFALL_SETS_FILE_PATH = "scryfall/all_sets.json"
+###
+###
+###
+###
+### POST sequence to get Scryfall data and save to storage, run once a week?
 
 
-@router.post("/scryfall/sets/save")
+@router.post("/scryfall/sets")
 async def save_scryfall_sets_to_storage(storage_client: AzureDataStorageClient = Depends(get_storage)):
     """
-    Fetches all set data from the Scryfall API and saves it to Azure storage
-    as a Parquet file.
+    Fetches all set data from the Scryfall API (/sets endpoint) and saves the
+    raw list of set objects to Azure storage as a JSON file defined by
+    SCRYFALL_SETS_FILE_PATH.
     """
     logger.info("Initiating Scryfall set data fetch and save process.")
     try:
@@ -199,359 +238,128 @@ async def save_scryfall_sets_to_storage(storage_client: AzureDataStorageClient =
         raise HTTPException(status_code=500, detail=f"Failed to save Scryfall set data: {str(e)}")
 
 
-@router.get("/scryfall/sets", response_model=List[Dict])
-async def get_scryfall_sets_from_storage(
-    storage_client: AzureDataStorageClient = Depends(get_storage),
-    code: Optional[str] = Query(None, description="Filter by set code (case-insensitive contains)"),
-    name: Optional[str] = Query(None, description="Filter by set name (case-insensitive contains)"),
-    # released_at: Optional[str] = Query(None, description="Filter by exact release date (YYYY-MM-DD)"),
-    set_type: Optional[str] = Query(None, description="Filter by exact set type (e.g., 'core', 'expansion')")
-):
-    """
-    Reads Scryfall set data from the stored Parquet file in Azure storage,
-    with optional filtering.
-    """
-    logger.info(f"Attempting to read Scryfall sets from storage: {SCRYFALL_SETS_FILE_PATH}")
-    try:
-        # 1. Read the Parquet file
-        set_data_df = await storage_client.read_data(file_name=SCRYFALL_SETS_FILE_PATH, file_type="json")
-
-        if set_data_df is None:
-            logger.warning(f"Scryfall set file not found in storage: {SCRYFALL_SETS_FILE_PATH}")
-            raise HTTPException(status_code=404, detail=f"Scryfall set data file not found at {SCRYFALL_SETS_FILE_PATH}. Run POST /scryfall/sets/save first.")
-
-        logger.info(f"Successfully read {len(set_data_df)} sets from {SCRYFALL_SETS_FILE_PATH}. Applying filters...")
-
-        # set_df = pd.DataFrame(set_data) # Convert to DataFrame for filtering
-
-        # 2. Apply Filters
-        filtered_df = set_data_df.copy() # Start with a copy
-
-        if code:
-            logger.debug(f"Filtering by code (contains, ignore case): {code}")
-            filtered_df = filtered_df[filtered_df['code'].str.contains(code, case=False, na=False)]
-        if name:
-            logger.debug(f"Filtering by name (contains, ignore case): {name}")
-            filtered_df = filtered_df[filtered_df['name'].str.contains(name, case=False, na=False)]
-        if set_type:
-            logger.debug(f"Filtering by set_type (exact match, ignore case): {set_type}")
-            filtered_df = filtered_df[filtered_df['set_type'].str.lower() == set_type.lower()]
-
-        logger.info(f"Filtering complete. Returning {len(filtered_df)} sets.")
-
-        # 3. Convert to list of dictionaries
-        # Fill NaN values to avoid JSON serialization errors, convert to Python native types
-        result_list = filtered_df.astype(object).where(pd.notnull(filtered_df), None).to_dict(orient="records")
-
-        return result_list
-
-    except HTTPException as http_exc:
-        raise http_exc
-    except FileNotFoundError: # More specific exception if read_parquet_data raises it
-         logger.error(f"Scryfall set file not found: {SCRYFALL_SETS_FILE_PATH}")
-         raise HTTPException(status_code=404, detail=f"Scryfall set data file not found: {SCRYFALL_SETS_FILE_PATH}")
-    except KeyError as e:
-        logger.error(f"Filtering error: Column '{e}' not found in the Parquet file.")
-        raise HTTPException(status_code=400, detail=f"Invalid filter: Column '{e}' does not exist in set data.")
-    except Exception as e:
-        logger.exception(f"Error reading or filtering Scryfall sets from storage ({SCRYFALL_SETS_FILE_PATH}): {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to read or filter Scryfall set data: {str(e)}")
-
-
-
-@router.get("/scryfall/cards/{set_code}", response_model=List[Dict[str, Any]])
-async def get_scryfall_cards_by_set_code(
-    set_code: str,
+# --- COMBINED UPDATE ENDPOINT ---
+@router.post("/scryfall/cards/update-core-expansion")
+async def update_merged_core_expansion_cards(
     storage_client: AzureDataStorageClient = Depends(get_storage)
 ):
     """
-    Reads card data for a specific set code by finding all files matching
-    'scryfall/cards/{set_code}_*.json', merging them, and returning the result.
+    Updates the main merged card data file for core and expansion sets.
+
+    Steps:
+    1. Reads the list of all sets from SCRYFALL_SETS_FILE_PATH.
+    2. Filters for sets matching TARGET_SET_TYPES ('core', 'expansion').
+    3. Fetches card data for each target set directly from the Scryfall API.
+    4. Combines all fetched cards into a single list in memory.
+    5. Saves the combined list to MERGED_CORE_EXP_CARDS_PATH as a JSON file.
+    6. Optionally triggers the daily subset generation upon successful completion.
+
+    This endpoint replaces the previous separate fetch/partition and merge steps.
     """
-    safe_set_code = set_code.lower()
-    # Construct a prefix to find files like 'dsk_expansion.parquet', 'dsk_core.parquet', etc.
-    # Adding the underscore makes the prefix more specific.
-    file_prefix = f"scryfall/cards/{safe_set_code}_"
-    logger.info(f"Attempting to read Scryfall cards for set code '{safe_set_code}' using prefix: '{file_prefix}*.json'")
+    logger.info("Starting update process for merged core and expansion cards.")
 
-    all_cards_list = []
-    read_error_count = 0
-    total_read_duration = 0.0
-
-    try:
-        # 1. List files matching the prefix
-        matching_files = await storage_client.list_files(prefix=file_prefix)
-
-        # Filter further to ensure they end with .json (list_files might not guarantee this)
-        json_files_to_read = [
-            name for name in matching_files if name.endswith(".json")
-        ]
-
-        if not json_files_to_read:
-            logger.warning(f"No Parquet files found matching prefix '{file_prefix}' for set code '{safe_set_code}'.")
-            raise HTTPException(status_code=404, detail=f"No card data files found for set code '{safe_set_code}' matching pattern '{file_prefix}*.json'.")
-
-        logger.info(f"Found {len(json_files_to_read)} files matching prefix to read: {json_files_to_read}")
-
-        # 2. Read each matching file
-        for i, file_path in enumerate(json_files_to_read):
-            logger.debug(f"Reading file {i+1}/{len(json_files_to_read)}: {file_path}")
-            start_read_time = time.time()
-            try:
-                list_of_dicts = await storage_client.read_data(file_name=file_path, file_type="json")
-                read_duration = time.time() - start_read_time
-                total_read_duration += read_duration
-                if list_of_dicts is not None and list_of_dicts:
-                    all_cards_list.extend(list_of_dicts)
-                    logger.debug(f"Successfully read {len(list_of_dicts)} records from {file_path} in {read_duration:.4f}s.")
-                elif list_of_dicts is None:
-                     logger.warning(f"Could not read file (returned None): {file_path}. Skipping.")
-                     read_error_count += 1
-                else: # df is empty
-                     logger.info(f"File is empty: {file_path}. Skipping.")
-
-            except Exception as read_err:
-                read_duration = time.time() - start_read_time
-                total_read_duration += read_duration
-                logger.exception(f"Error reading file {file_path} after {read_duration:.4f}s: {read_err}. Skipping.")
-                read_error_count += 1
-
-        logger.info(f"Total Parquet file read duration: {total_read_duration:.4f} seconds for {len(json_files_to_read)} files.")
-
-        # 3. Check if any data was actually read
-        if not all_cards_list:
-            logger.error(f"Failed to read data from any of the matching files for prefix '{file_prefix}'. Read errors: {read_error_count}.")
-            # Decide on appropriate status code - 404 if files existed but couldn't be read/were empty? Or 500?
-            raise HTTPException(status_code=404, detail=f"Could not read card data for set code '{safe_set_code}'. Files might be empty or corrupted.")
-
-        # --- Select specific columns for trivia ---
-        trivia_columns = [
-            'name', 
-            'mana_cost', 
-            'cmc', 
-            'type_line', 
-            'oracle_text',
-            'power', 
-            'toughness', 
-            'loyalty', 
-            'defense', 
-            'keywords', 
-            'rarity', 
-            'artist',
-            'flavor_text', 
-            'image_uris_normal', 
-            'set', 
-            'set_name', 
-            'released_at', 
-            'collector_number'
-        ]
-
-        logger.debug(f"Filtering {len(all_cards_list)} combined records to keep trivia columns...")
-        filtered_list = []
-        for card_dict in all_cards_list:
-            filtered_card = {key: card_dict.get(key) for key in trivia_columns if key in card_dict}
-            filtered_list.append(filtered_card)
-        logger.debug(f"Filtering complete. Returning {len(filtered_list)} records.")
-
-        return filtered_list
-
-    except HTTPException as http_exc:
-        raise http_exc
-
-    except Exception as e:
-        logger.exception(f"Error processing request for set code '{safe_set_code}' using prefix '{file_prefix}': {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to process card data request for set code '{safe_set_code}': {str(e)}")
-
-
-@router.post("/scryfall/cards/partition-core-expansion")
-async def fetch_partition_upload_core_expansion_cards(
-    storage_client: AzureDataStorageClient = Depends(get_storage)
-):
-    """
-    Fetches card data for 'core' and 'expansion' sets directly from Scryfall,
-    flattens the data, and saves each set's data individually to 'scryfall/cards/'
-    with the naming scheme {set_code}_{set_name}.json.
-    """
-    logger.info("Starting partitioning process for core and expansion set cards by fetching from Scryfall.")
-
+    all_fetched_cards = [] # List to hold all cards in memory
     sets_processed_count = 0
-    files_saved_count = 0
     fetch_error_count = 0
-    # flatten_error_count = 0
-    save_error_count = 0
     sets_with_no_cards = 0
-    target_set_types = ['core', 'expansion']
 
     try:
-        # 1. Read the Scryfall set list file
+        # 1. Read the Scryfall set list file (Prerequisite)
+        logger.info(f"Reading set list from: {SCRYFALL_SETS_FILE_PATH}")
         set_data_list = await storage_client.read_data(file_name=SCRYFALL_SETS_FILE_PATH, file_type="json")
+
         if set_data_list is None:
             logger.error(f"Scryfall set list file not found or invalid: {SCRYFALL_SETS_FILE_PATH}. Cannot proceed.")
-            raise HTTPException(status_code=404, detail=f"Scryfall set list file not found or invalid: {SCRYFALL_SETS_FILE_PATH}")
+            raise HTTPException(status_code=404, detail=f"Scryfall set list file not found: {SCRYFALL_SETS_FILE_PATH}. Run POST /scryfall/sets first.")
         if not isinstance(set_data_list, list):
              logger.error(f"Expected a list from {SCRYFALL_SETS_FILE_PATH}, but got {type(set_data_list)}. Cannot proceed.")
              raise HTTPException(status_code=500, detail=f"Invalid format in set list file: {SCRYFALL_SETS_FILE_PATH}")
 
         logger.info(f"Read {len(set_data_list)} sets from the list file.")
 
-        # 2. Filter for core and expansion sets using list comprehension
+        # 2. Filter for core and expansion sets
         target_sets_list = [
             set_dict for set_dict in set_data_list
-            if set_dict.get('set_type') in target_set_types
+            if set_dict.get('set_type') in TARGET_SET_TYPES # Use constant
         ]
 
         if not target_sets_list:
-            logger.warning("No 'core' or 'expansion' sets found in the set list. Nothing to partition.")
-            return {"message": "No 'core' or 'expansion' sets found. No files partitioned."}
-        
-        total_sets_to_process = len(target_sets_list)
-        logger.info(f"Found {total_sets_to_process} sets of type 'core' or 'expansion' to process.")
+            logger.warning(f"No sets of types {TARGET_SET_TYPES} found in the set list. Nothing to update.")
+            return {"message": f"No sets of types {TARGET_SET_TYPES} found. Merged file not updated."}
 
-        # 3. Iterate through target sets (now a list of dicts)
+        total_sets_to_process = len(target_sets_list)
+        logger.info(f"Found {total_sets_to_process} sets of type {TARGET_SET_TYPES} to process.")
+
+        # 3. Iterate through target sets, fetch cards, and append to list
         for set_row in target_sets_list:
             current_set_code = set_row.get('code')
-            current_set_type = set_row.get('set_type')
             current_set_name = set_row.get('name')
             sets_processed_count += 1
 
-            # Check if the set code is valid
-            if not all([current_set_code, current_set_type, current_set_name]):
-                 logger.warning(f"Skipping set entry due to missing data: {set_row}")
+            if not all([current_set_code, current_set_name]):
+                 logger.warning(f"Skipping set entry due to missing code or name: {set_row}")
                  continue
 
-            logger.info(f"--- Processing set {sets_processed_count}/{total_sets_to_process}: {current_set_code} ({current_set_name}) Type: {current_set_type} ---")
-
-            # Sanitize set name for use in filename (replace slashes, etc.)
-            safe_set_name = current_set_name.replace('/', '_').replace('\\', '_')
-            destination_card_file = f"scryfall/cards/{current_set_code}_{safe_set_name}.json" # Use sanitized name
+            logger.info(f"--- Processing set {sets_processed_count}/{total_sets_to_process}: {current_set_code} ({current_set_name}) ---")
 
             try:
-                # 4. Fetch cards for the current set from Scryfall API
-                logger.debug(f"Fetching card data for set '{current_set_code}_{current_set_name}' from Scryfall API...")
-                card_data_list = await fetch_scryfall_cards_by_set(current_set_code)
+                logger.debug(f"Fetching card data for set '{current_set_code}' from Scryfall API...")
+                card_data_list = await fetch_scryfall_cards_by_set(current_set_code) # Assumes this helper exists and works
 
                 if card_data_list is None:
-                    logger.error(f"Failed to fetch card data for set {current_set_code} from Scryfall. Skipping.")
+                    # fetch_scryfall_cards_by_set should ideally raise an error or return []
+                    # Handling None just in case
+                    logger.error(f"Fetching card data for set {current_set_code} returned None. Skipping.")
                     fetch_error_count += 1
-                    continue # Move to the next set
+                    continue
 
                 if not card_data_list:
                     logger.info(f"No cards found for set {current_set_code} from Scryfall.")
                     sets_with_no_cards += 1
-                    continue # Move to the next set
+                    continue
 
-                logger.debug(f"Fetched {len(card_data_list)} cards for set '{current_set_code}'.")
+                logger.debug(f"Fetched {len(card_data_list)} cards for set '{current_set_code}'. Appending to main list.")
+                all_fetched_cards.extend(card_data_list) # Append directly
 
-                logger.info(f"Saving raw card data for set '{current_set_code}_{current_set_name}' to: {destination_card_file}")
-                await storage_client.upload_data(data=card_data_list, file_name=destination_card_file, file_type="json")
+            except Exception as fetch_err:
+                # Log error from fetching a specific set but continue with others
+                logger.exception(f"Error fetching cards for set '{current_set_code}': {fetch_err}")
+                fetch_error_count += 1
+                # Decide if you want to stop the whole process on a single set failure
 
-                files_saved_count += 1
-                logger.debug(f"Successfully saved {destination_card_file}")
+        # 4. Save the combined list to the single merged file
+        if not all_fetched_cards:
+             logger.warning("No cards were fetched successfully across all sets. Skipping save of merged file.")
+             return {"message": "Update process completed, but no cards were fetched or saved."}
 
-            except Exception as process_error:
-                # Catch errors during fetch/flatten/save for a specific set
-                logger.exception(f"Error processing set '{current_set_code}_{current_set_name}': Fetching, flattening, or writing to {destination_card_file}. Error: {process_error}")
-                save_error_count += 1 # Count as a general save/process error here
-                # Continue to the next set even if one fails
-
-        # 8. Return summary
-        summary_message = (
-            f"Finished partitioning 'core' and 'expansion' sets by fetching from Scryfall. "
-            f"Total sets considered: {total_sets_to_process}. "
-            f"Successfully fetched and saved files: {files_saved_count}. "
-            f"Sets with fetch errors: {fetch_error_count}. "
-            # f"Sets with flatten errors: {flatten_error_count}. "
-            f"Sets with save errors: {save_error_count}. "
-            f"Sets with no cards found: {sets_with_no_cards}."
-        )
-        logger.info(summary_message)
-        return {"message": summary_message}
-
-    except HTTPException as http_exc:
-        # Handle specific HTTP errors like 404 for the set list file
-        raise http_exc
-    except Exception as e:
-        logger.exception(f"Critical error during card partitioning initiation: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed during card partitioning: {str(e)}")
-    
-
-
-@router.post("/scryfall/cards/merge-core-expansion")
-async def merge_core_expansion_card_files(
-    storage_client: AzureDataStorageClient = Depends(get_storage)
-):
-    """
-    Merges card files from 'scryfall/cards/' into a single combined file:
-    'scryfall/cards/merged_cards/combined_core_expansion.json'.
-    """
-    source_directory = "scryfall/cards/"
-    # core_pattern = "_core.json"
-    # expansion_pattern = "_expansion.json"
-    combined_file_path = f"{source_directory}merged_cards/combined_all_core_expansion.json"
-
-    logger.info(f"Starting merge process for core/expansion card files in '{source_directory}'.")
-    logger.info(f"Target combined file: '{combined_file_path}'.")
-
-    files_merged_count = 0
-    read_error_count = 0
-    all_cards_list = []
-
-    try:
-        # 1. List all potential files in the source directory using the modified list_files
-        # This now returns a list of strings (names)
-        all_blob_names = await storage_client.list_files(prefix=source_directory) # Call the modified method
-        if not all_blob_names:
-            logger.warning(f"No files found in directory '{source_directory}'. Nothing to merge.")
-            return {"message": f"No files found in {source_directory}. Merge not performed."}
-
-        # Filter for core and expansion files, excluding the combined file itself
-        files_to_merge = [
-            name for name in all_blob_names # Iterate directly over names
-               if name != combined_file_path
-        ]
-
-        if not files_to_merge:
-            logger.warning(f"No files found in '{source_directory}'. Nothing to merge.")
-            return {"message": f"No core or expansion files found to merge in {source_directory}."}
-
-        total_files_to_process = len(files_to_merge)
-        logger.info(f"Found {total_files_to_process} core/expansion files to merge.")
-
-        # 2. Read each file and collect DataFrames (No change needed here)
-        for i, file_path in enumerate(files_to_merge):
-            logger.debug(f"Reading file {i+1}/{total_files_to_process}: {file_path}")
-            try:
-                list_of_dicts = await storage_client.read_data(file_name=file_path, file_type="json")
-                if list_of_dicts is not None and list_of_dicts:
-                    all_cards_list.extend(list_of_dicts)
-                    files_merged_count += 1
-                elif list_of_dicts is None:
-                     logger.warning(f"Could not read file (returned None): {file_path}. Skipping.")
-                     read_error_count += 1
-                else: # df is empty
-                     logger.info(f"File is empty: {file_path}. Skipping.")
-
-            except Exception as read_err:
-                logger.exception(f"Error reading file {file_path}: {read_err}. Skipping.")
-                read_error_count += 1
-
-
-        logger.info(f"Uploading combined data to {combined_file_path}...")
+        logger.info(f"Saving {len(all_fetched_cards)} combined cards to: {MERGED_CORE_EXP_CARDS_PATH}")
         try:
-            await storage_client.upload_data(data=all_cards_list, file_name=combined_file_path, file_type="json")
+            # Use upload_json_data for consistency if available and appropriate
+            await storage_client.upload_data(data=all_fetched_cards, file_name=MERGED_CORE_EXP_CARDS_PATH, file_type="json")
+            logger.info(f"Successfully saved merged card file: {MERGED_CORE_EXP_CARDS_PATH}")
 
-            logger.info(f"Successfully uploaded combined file: {combined_file_path}")
+            # --- Optional: Trigger daily subset generation ---
+            try:
+                 logger.info("Triggering daily subset generation after successful merge...")
+                 # Pass the already retrieved storage_client instance
+                 await generate_daily_subset(storage_client=storage_client)
+                 logger.info("Daily subset generation triggered.")
+            except Exception as subset_err:
+                 logger.exception(f"Error triggering daily subset generation after merge: {subset_err}")
+                 # Log the error but don't fail the main update process
+            # --- End Optional Trigger ---
 
         except Exception as upload_err:
-            logger.exception(f"Error uploading combined file {combined_file_path}: {upload_err}")
+            logger.exception(f"Error uploading combined file {MERGED_CORE_EXP_CARDS_PATH}: {upload_err}")
             raise HTTPException(status_code=500, detail=f"Failed to upload combined file: {upload_err}")
 
-        # 5. Return summary (No change needed here)
+        # 5. Return summary
         summary_message = (
-            f"Successfully merged card data. "
-            f"Files successfully read and merged: {files_merged_count}. "
-            f"Files skipped due to read errors: {read_error_count}. "
-            f"Combined file saved to: {combined_file_path} with {len(all_cards_list)} total records."
+            f"Finished updating merged core/expansion cards. "
+            f"Total sets processed: {sets_processed_count}. "
+            f"Sets with fetch errors: {fetch_error_count}. "
+            f"Sets with no cards found: {sets_with_no_cards}. "
+            f"Total cards saved to {MERGED_CORE_EXP_CARDS_PATH}: {len(all_fetched_cards)}."
         )
         logger.info(summary_message)
         return {"message": summary_message}
@@ -559,11 +367,130 @@ async def merge_core_expansion_card_files(
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
-        logger.exception(f"Critical error during card file merge process: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed during card file merge: {str(e)}")
+        logger.exception(f"Critical error during merged card update process: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed during merged card update: {str(e)}")
+
+
+@router.post("/scryfall/cards/update-daily1000", status_code=202)
+async def trigger_generate_daily_subset(storage_client: AzureDataStorageClient = Depends(get_storage)):
+    """
+    Manually triggers the generation of the daily random subset file (daily1000).
+
+    This reads the main merged card file (MERGED_CORE_EXP_CARDS_PATH),
+    filters for cards priced > MIN_PRICE_FOR_SUBSET, selects a random subset
+    (size defined by SUBSET_SIZE), and saves it to DAILY_SUBSET_FILE.
+
+    Note: This is also triggered automatically after a successful run of
+    POST /scryfall/cards/update-core-expansion.
+    """
+    logger.info("Manual trigger received for daily random subset generation (daily1000).") # Updated log
+    try:
+        # Call the existing async function that contains the logic
+        await generate_daily_subset(storage_client=storage_client)
+        message = "Daily random subset generation process (daily1000) triggered successfully." # Updated message
+        logger.info(message)
+        # Return 202 Accepted, as the process might run for a bit
+        return {"message": message}
+    except Exception as e:
+        # Catch any unexpected errors during the trigger/execution
+        logger.exception(f"Error manually triggering daily subset generation (daily1000): {e}") # Updated log
+        raise HTTPException(status_code=500, detail=f"Failed to trigger daily subset generation (daily1000): {str(e)}") # Updated detail
+
+
+###
+###
+###
+###
+###
+
+
+@router.get("/scryfall/sets", response_model=List[Dict])
+async def get_scryfall_sets_from_storage(
+    storage_client: AzureDataStorageClient = Depends(get_storage),
+    code: Optional[str] = Query(None, description="Filter by set code (case-insensitive contains)"),
+    name: Optional[str] = Query(None, description="Filter by set name (case-insensitive contains)"),
+    set_type: Optional[str] = Query(None, description="Filter by exact set type (e.g., 'core', 'expansion')")
+):
+    """
+    Reads the list of Scryfall set objects from the stored JSON file
+    (SCRYFALL_SETS_FILE_PATH) in Azure storage, with optional filtering.
+    """
+    logger.info(f"Attempting to read Scryfall sets from storage: {SCRYFALL_SETS_FILE_PATH}")
+    try:
+        # 1. Read the JSON file into a list of dictionaries
+        set_data_list = await storage_client.read_data(file_name=SCRYFALL_SETS_FILE_PATH, file_type="json")
+
+        if set_data_list is None:
+            logger.warning(f"Scryfall set file not found in storage: {SCRYFALL_SETS_FILE_PATH}")
+            raise HTTPException(status_code=404, detail=f"Scryfall set data file not found at {SCRYFALL_SETS_FILE_PATH}. Run POST /scryfall/sets first.")
+
+        if not isinstance(set_data_list, list):
+             logger.error(f"Expected a list from {SCRYFALL_SETS_FILE_PATH}, but got {type(set_data_list)}. Data might be corrupted.")
+             raise HTTPException(status_code=500, detail=f"Invalid format in set data file: {SCRYFALL_SETS_FILE_PATH}")
+
+        if not set_data_list:
+             logger.info(f"Set data file {SCRYFALL_SETS_FILE_PATH} is empty. Returning empty list.")
+             return []
+
+        # --- Convert list to DataFrame for filtering ---
+        try:
+            set_df = pd.DataFrame(set_data_list)
+        except Exception as df_err:
+            logger.exception(f"Failed to convert set data list to DataFrame: {df_err}")
+            raise HTTPException(status_code=500, detail="Failed to process set data structure.")
+        # --- End Conversion ---
+
+        logger.info(f"Successfully read {len(set_df)} sets from {SCRYFALL_SETS_FILE_PATH}. Applying filters...")
+
+        # 2. Apply Filters to the DataFrame
+        filtered_df = set_df # Start with the full DataFrame
+
+        # Check if columns exist before filtering to prevent KeyErrors
+        if code and 'code' in filtered_df.columns:
+            logger.debug(f"Filtering by code (contains, ignore case): {code}")
+            # Ensure the column is treated as string before using .str accessor
+            filtered_df = filtered_df[filtered_df['code'].astype(str).str.contains(code, case=False, na=False)]
+        elif code:
+             logger.warning("Filter 'code' ignored: Column 'code' not found in data.")
+
+        if name and 'name' in filtered_df.columns:
+            logger.debug(f"Filtering by name (contains, ignore case): {name}")
+            filtered_df = filtered_df[filtered_df['name'].astype(str).str.contains(name, case=False, na=False)]
+        elif name:
+             logger.warning("Filter 'name' ignored: Column 'name' not found in data.")
+
+        if set_type and 'set_type' in filtered_df.columns:
+            logger.debug(f"Filtering by set_type (exact match, ignore case): {set_type}")
+            # Ensure comparison is done correctly, handling potential NaN/None
+            filtered_df = filtered_df[filtered_df['set_type'].astype(str).str.lower() == set_type.lower()]
+        elif set_type:
+             logger.warning("Filter 'set_type' ignored: Column 'set_type' not found in data.")
+
+
+        logger.info(f"Filtering complete. Returning {len(filtered_df)} sets.")
+
+        # 3. Convert the filtered DataFrame back to list of dictionaries
+        # Fill NaN/NaT with None for JSON compatibility
+        result_list = filtered_df.replace({np.nan: None}).to_dict(orient="records")
+
+        # Optional: Apply numpy conversion if needed, although to_dict usually handles it
+        # result_list = convert_numpy_to_list(result_list)
+
+        return result_list
+
+    except HTTPException as http_exc:
+        raise http_exc
+
+        logger.error(f"Filtering error: Problem accessing column '{e}'.")
+        raise HTTPException(status_code=400, detail=f"Invalid filter or data structure issue involving column '{e}'.")
+    except Exception as e:
+        logger.exception(f"Error reading or filtering Scryfall sets from storage ({SCRYFALL_SETS_FILE_PATH}): {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read or filter Scryfall set data: {str(e)}")
+
+
     
 
-@router.get("/scryfall/cards/merged_cards/core-expansion", response_model=List[Dict[str, Any]])
+@router.get("/scryfall/cards/core-expansion", response_model=List[Dict[str, Any]])
 async def get_merged_core_expansion_cards(
     storage_client: AzureDataStorageClient = Depends(get_storage),
     # Optional: Add query parameters for filtering or pagination later if needed
@@ -572,10 +499,10 @@ async def get_merged_core_expansion_cards(
     # limit: int = Query(100, ge=1, le=1000, description="Maximum number of records to return")
 ):
     """
-    Reads the merged core and expansion card data from the combined JSON file
-    'scryfall/cards/merged_cards/combined_all_core_expansion.json'.
+    Reads and returns the full list of merged core and expansion card data
+    from the combined JSON file (MERGED_CORE_EXP_CARDS_PATH).
     """
-    merged_file_path = "scryfall/cards/merged_cards/combined_all_core_expansion.json"
+    merged_file_path = "scryfall/cards/combined_all_core_expansion.json"
     logger.info(f"Attempting to read merged core/expansion card data from: {merged_file_path}")
 
     try:
@@ -616,15 +543,15 @@ async def get_merged_core_expansion_cards(
         raise HTTPException(status_code=500, detail=f"Failed to read merged card data: {str(e)}")
 
 
-@router.get("/scryfall/cards/merged_cards/random", response_model=Dict[str, Any])
+@router.get("/scryfall/cards/random", response_model=Dict[str, Any])
 async def get_random_merged_card(
     storage_client: AzureDataStorageClient = Depends(get_storage)
 ):
     """
     Reads the merged core and expansion card data from the combined JSON file
-    and returns a single randomly selected card.
+    (MERGED_CORE_EXP_CARDS_PATH) and returns a single randomly selected card object.
     """
-    merged_file_path = "scryfall/cards/merged_cards/combined_all_core_expansion.json"
+    merged_file_path = "scryfall/cards/combined_all_core_expansion.json"
     logger.info(f"Attempting to read merged card data from: {merged_file_path} to select a random card.")
 
     try:
@@ -659,15 +586,17 @@ async def get_random_merged_card(
         raise HTTPException(status_code=500, detail=f"Failed to get random card: {str(e)}")
 
 
-@router.get("/scryfall/cards/merged_cards/daily100", response_model=List[Dict[str, Any]])
+@router.get("/scryfall/cards/daily1000", response_model=List[Dict[str, Any]]) # Renamed path
 async def get_daily_random_subset(
     storage_client: AzureDataStorageClient = Depends(get_storage)
 ):
     """
-    Reads and returns the pre-generated daily random subset of cards.
-    This file should be updated daily by a background script.
+    Reads and returns the pre-generated daily random subset of cards (daily1000)
+    from the JSON file defined by DAILY_SUBSET_FILE.
+    This file contains cards priced > MIN_PRICE_FOR_SUBSET and is updated
+    by the daily generation process.
     """
-    logger.info(f"Attempting to read daily random subset file: {DAILY_SUBSET_FILE}")
+    logger.info(f"Attempting to read daily random subset file: {DAILY_SUBSET_FILE}") # Log uses constant
 
     try:
         # 1. Read the pre-generated subset JSON file
@@ -675,12 +604,10 @@ async def get_daily_random_subset(
 
         if daily_subset_list is None:
             logger.error(f"Daily random subset file not found or invalid: {DAILY_SUBSET_FILE}")
-            # Return 404 - the file *should* exist if the daily job ran.
-            raise HTTPException(status_code=404, detail=f"Daily random subset file not found at {DAILY_SUBSET_FILE}. The daily generation job may have failed.")
+            raise HTTPException(status_code=404, detail=f"Daily random subset file not found at {DAILY_SUBSET_FILE}. The daily generation job may have failed or found no cards meeting criteria.") # Updated detail
 
         if not isinstance(daily_subset_list, list):
              logger.error(f"Expected a list from {DAILY_SUBSET_FILE}, but got {type(daily_subset_list)}.")
-             # Return 500 - indicates a problem with the generated file format.
              raise HTTPException(status_code=500, detail=f"Invalid format in daily subset file: {DAILY_SUBSET_FILE}")
 
         logger.info(f"Successfully read {len(daily_subset_list)} cards from {DAILY_SUBSET_FILE}.")
@@ -695,23 +622,4 @@ async def get_daily_random_subset(
         raise HTTPException(status_code=500, detail=f"Failed to read daily random subset: {str(e)}")
     
 
-@router.post("/scryfall/cards/merged_cards/daily100", status_code=202) # Use 202 Accepted
-async def trigger_generate_daily_subset(storage_client: AzureDataStorageClient = Depends(get_storage)):
-    """
-    Manually triggers the generation of the daily random subset file.
-    This reads the main merged file, selects a random subset, and saves it.
-    Note: This might take some time depending on the size of the merged file.
-    """
-    logger.info("Manual trigger received for daily random subset generation.")
-    try:
-        # Call the existing async function that contains the logic
-        await generate_daily_subset(storage_client=storage_client)
-        message = "Daily random subset generation process triggered successfully."
-        logger.info(message)
-        # Return 202 Accepted, as the process might run for a bit
-        return {"message": message}
-    except Exception as e:
-        # Catch any unexpected errors during the trigger/execution
-        logger.exception(f"Error manually triggering daily subset generation: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to trigger daily subset generation: {str(e)}")
 

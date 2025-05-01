@@ -3,6 +3,8 @@ import Home from '../views/Home.vue'
 import PetNameGameView from '../views/games/PetNameGameView.vue'
 import MagicCardView from '../views/games/MagicCardView.vue'
 import MagicMathGameView from '../views/games/MagicMathGameView.vue'
+import MagicPriceGuessView from '../views/games/MagicPriceGuessView.vue'
+
 
 
 const routes = [
@@ -25,6 +27,11 @@ const routes = [
     path: '/games/magic-math-game',
     name: 'MagicMathGame',
     component: MagicMathGameView
+  },
+  {
+    path: '/games/magic-price-guess',
+    name: 'MagicPriceGuess',
+    component: MagicPriceGuessView
   },
   // Add more game routes as needed
 ]
