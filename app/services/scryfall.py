@@ -8,8 +8,6 @@ SCRYFALL_API_BASE = "https://api.scryfall.com"
 SCRYFALL_REQUEST_DELAY_SECONDS = 0.1
 
 
-
-
 # -- Fetch Scryfall sets
 async def fetch_all_scryfall_sets() -> Optional[List[Dict[str, Any]]]:
     """

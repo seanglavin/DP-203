@@ -7,6 +7,13 @@
     <!-- Loading State -->
     <div v-if="gameState === 'loading'" class="text-center py-10">
       <p class="text-gray-500 mb-2">Loading game data...</p>
+      <div class="card-image-container mb-4 h-80 flex justify-center items-center bg-gray-800 rounded-lg overflow-hidden mx-auto" style="max-width: 240px;">
+         <img
+            src="../assets/Back_of_MTG_card.png"
+            alt="Loading card..."
+            class="max-w-full max-h-full object-contain opacity-50"
+          />
+      </div>
       <div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
     </div>
 
@@ -129,9 +136,7 @@ export default {
     async fetchPricedCards() {
       this.gameState = 'fetching'; // Indicate fetching state
       try {
-        // --- Changed Endpoint ---
         const response = await fetch('http://localhost:8000/api/mtg/scryfall/cards/daily1000');
-        // --- End Change ---
 
         if (!response.ok) {
           const errorData = await response.json();
@@ -143,7 +148,7 @@ export default {
         }
         console.log(`Fetched ${data.length} cards from core-expansion set.`);
 
-        // --- Added Price Filter ---
+        // --- Price Filter ---
         this.allPricedCards = data.filter(card => {
             const price = this.getUsdPrice(card);
             return price !== null && price > MIN_PRICE_FILTER;
@@ -151,11 +156,11 @@ export default {
         console.log(`Filtered down to ${this.allPricedCards.length} cards with USD price > $${MIN_PRICE_FILTER.toFixed(2)}.`);
         // --- End Filter ---
 
-        // --- Updated Error Check ---
+        // --- Error Check ---
         if (this.allPricedCards.length < TOTAL_ROUNDS) {
           throw new Error(`Not enough cards with price > $${MIN_PRICE_FILTER.toFixed(2)} found (${this.allPricedCards.length}) to play ${TOTAL_ROUNDS} rounds.`);
         }
-        // --- End Update ---
+        // --- End Error Check ---
 
         this.startNewGame(); // Start the game if enough cards are found
 

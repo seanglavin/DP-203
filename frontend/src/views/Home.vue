@@ -1,16 +1,16 @@
 <template>
   <div class="home flex flex-col items-center">
     <!-- Games Wrapper -->
-    <div class="flex flex-wrap justify-center gap-6 w-full max-w-4xl">
+    <div class="flex overflow-x-auto space-x-6 py-4 px-4 w-full max-w-full">
 
       <!-- Game Card for Pet Name Guessing -->
-      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition max-w-md w-full overflow-hidden">
+      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition w-72 flex-shrink-0 overflow-hidden">
         <h3 class="text-xl font-bold text-center text-[var(--primary-light)] bg-[var(--primary-purple)] py-3 px-4">
           Petfinder Who is that?
         </h3>
 
         <div class="p-6">
-          <p class="mb-4 text-center">Guess the names of these adoptable pets near you?</p>
+          <!-- <p class="mb-4 text-center">Guess the names of these adoptable pets near you?</p> -->
 
           <div class="w-full h-48 mb-4 rounded-lg overflow-hidden bg-gray-200 flex items-center justify-center">
             <img
@@ -30,9 +30,9 @@
       </div>
 
       <!-- Game Card for Magic: The Gathering Random Card -->
-      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition max-w-md w-full overflow-hidden">
+      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition w-72 flex-shrink-0 overflow-hidden">
         <h3 class="text-xl font-bold text-center text-[var(--primary-light)] bg-[var(--primary-purple)] py-3 px-4">
-          Magic: The Gathering Random Card
+          MTG Random Card
         </h3>
         <div class="p-6">
           <!-- <p class="mb-4 text-center">View a random Magic card from today's selection.</p> -->
@@ -53,9 +53,9 @@
       </div>
 
       <!-- --- Game Card for Magic Math Game --- -->
-      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition max-w-md w-full overflow-hidden">
+      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition w-72 flex-shrink-0 overflow-hidden">
         <h3 class="text-xl font-bold text-center text-[var(--primary-light)] bg-[var(--primary-purple)] py-3 px-4">
-          Magic Math
+          MTG Math
         </h3>
         <div class="p-6">
           <!-- <p class="mb-4 text-center">Use card stats to reach the target number!</p> -->
@@ -76,9 +76,9 @@
       </div>
 
       <!-- --- Game Card for Magic Price Guesser --- -->
-      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition max-w-md w-full overflow-hidden">
+      <div class="game-card bg-[var(--secondary-light)] rounded-xl shadow-md hover:shadow-lg transition w-72 flex-shrink-0 overflow-hidden">
         <h3 class="text-xl font-bold text-center text-[var(--primary-light)] bg-[var(--primary-purple)] py-3 px-4">
-          Magic Card Price Guesser
+          MTG Price Guesser
         </h3>
         <div class="p-6">
           <!-- <p class="mb-4 text-center">How close can you guess the price of these cards?</p> -->
